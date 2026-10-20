@@ -88,6 +88,16 @@ werden nicht als tatsächlich gehandelte Fondsgewinne ausgewiesen.
 
 ## Freigabe durch CEO
 
+**Neueste Kapitalvorgabe, 20.10.2026:** Maximal 25 % Kapital pro Trader, über
+alle eigenen Positionen und offenen Kaufreservierungen zusammen. Prüfung vor
+Reservierung, erneut vor Fill und in der laufenden Schutzkontrolle. Es zählt
+konservativ der höhere Wert aus gebundenem Kapital und bewerteter Position.
+Größere Altpositionen erhalten einen deterministischen Schutz-Teilverkauf mit
+kleinem Puffer unter der Grenze, ohne Signal-/Daten-/Ledgerprüfungen zu umgehen.
+Die größere NVDA-Position von Agent 95 wurde um 8,380575 Stück reduziert.
+Eine zwischenzeitliche API-Schemaablehnung ist korrigiert: alle Felder des
+strikten Agentenantwortschemas, auch position_pct, werden als erforderlich gesendet.
+
 **Neuester Budgetauftrag, 20.10.2026:** Tägliches OpenAI-API-Limit entfernt.
 30 EUR Monatsbudget bleibt atomar durchgesetzt. Historische Tageskosten und
 unklare Reservierungen bleiben vollständig erhalten; Tageskosten blockieren

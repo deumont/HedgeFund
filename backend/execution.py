@@ -2,7 +2,7 @@
 import json
 from decimal import Decimal, ROUND_DOWN
 from .config import units, eur
-from .ledger import RiskError, meta, snapshot, valid_quote, latest_fx, TECH, capped_limit,effective_limits,cash_caps
+from .ledger import RiskError, meta, snapshot, valid_quote, latest_fx, TECH, capped_limit,effective_limits,cash_caps,agent_exposure
 
 D = Decimal
 
@@ -37,7 +37,7 @@ def plan_order(db, agent_id, symbol, side, at=None):
         caps = cash_caps(c,pid)
         positions = state['positions']
         pending = c.execute("SELECT * FROM orders WHERE portfolio_id=? AND status IN ('pending','triggered')", (pid,)).fetchall()
-        own = sum(p['cost_u'] for p in positions if p['agent_id'] == agent_id)
+        own = agent_exposure(positions,agent_id)
         own += sum(p['reserved_u'] for p in pending if p['agent_id'] == agent_id)
         symbol_cost = sum(p['cost_u'] for p in positions if p['symbol'] == symbol)
         symbol_cost += sum(p['reserved_u'] for p in pending if p['symbol'] == symbol)

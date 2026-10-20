@@ -28,7 +28,7 @@ async def test_real_sdk_response_contract_persists_usage_memory_strategy(db,monk
     result={'action':'research','symbol':'SPY','qty':'0','stop_usd':None,'take_usd':None,
             'hypothesis':'Reproduzierbare Testhypothese','conclusion':'Nicht handeln: keine ausreichenden Daten.',
             'evidence_ids':[],'rejected_alternatives':['Ungedeckter Kauf'],'memory':'Datenqualität prüfen.',
-            'proposed_strategy':{'kind':'momentum','lookback':12,'holding_bars':3,'threshold':.01,'stop_pct':.02,
+            'proposed_strategy':{'kind':'momentum','lookback':12,'holding_bars':3,'threshold':.01,'stop_pct':.02,'position_pct':.25,
                                 'timeframe_minutes':15,'max_data_delay_minutes':15,'requires_realtime':False,'requires_full_market':False}}
     seen=[]
     def handler(request):

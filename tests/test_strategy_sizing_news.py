@@ -19,7 +19,7 @@ def test_strategy_sizes_can_exceed_old_caps_but_preserve_cash(db):
         c.execute('UPDATE strategies SET spec=? WHERE agent_id=76',(dumps(spec),))
     plan=plan_order(db,76,'AAPL','buy',AT)
     order=Ledger(db).submit(76,'AAPL','buy',client_id='strategy-size',reason='strategy test',at=AT,**plan)
-    assert 240e6<order['reserved_u']<1500e6
+    assert 240e6<order['reserved_u']<750e6
     fill=Ledger(db).fill(order['id'],AT)
     assert fill
     assert db.one("SELECT cash_u FROM portfolios WHERE id='fund'")['cash_u']>=0

@@ -59,12 +59,12 @@ def test_concurrent_reservations_no_double_spend(db):
     db.set('risk_limits',limits)
     def submit(aid):
         try:
-            return l.submit(aid,'SPY','buy',20,str(aid),stop_usd=98,reason='test',at=AT)
+            return l.submit(aid,'SPY','buy',8,str(aid),stop_usd=98,reason='test',at=AT)
         except RiskError:
             return None
     with ThreadPoolExecutor(max_workers=8) as pool:
         results=list(pool.map(submit,range(76,101)))
-    assert sum(x is not None for x in results)==1
+    assert sum(x is not None for x in results)==4
     p=db.one("SELECT * FROM portfolios WHERE id='fund'")
     assert 0<=p['reserved_u']<=p['cash_u']
     assert l.reconcile()

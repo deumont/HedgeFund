@@ -44,3 +44,9 @@ Kapital, Reservierungen, Liquidität, valide Signale, Datenqualität, mindestens
 CEO-Budgetänderung vom 20.10.2026: Das zusätzliche tägliche OpenAI-Limit entfällt.
 Das monatliche Limit bleibt 30 EUR; atomare Reservierungen und die konservative
 Anrechnung unklarer Anfragen bleiben erhalten. Tageskosten sind nur eine Statistik.
+
+Neuester CEO-Auftrag: Jeder Trader darf höchstens 25 % seines Portfolios nutzen
+(Fund: gemeinsames Fondsvermögen; Demo: eigenes virtuelles Portfolio). Alle
+Positionen und offenen Kaufreservierungen des Agenten zusammen zählen. Diese
+Obergrenze gilt auch im Strategie-Modus. Überhöhte bestehende Positionen werden
+mit geeigneten Daten kontrolliert reduziert; keine erfundenen oder veralteten Fills.

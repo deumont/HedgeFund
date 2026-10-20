@@ -100,8 +100,10 @@ neue Trades benötigen weiterhin die lokale Engine. Einrichtung und Grenzen:
 [Private Cloud-Konsole](docs/CLOUD.md).
 
 Im freigegebenen Paper-Experimentiermodus wählen Strategien ihre Positionsanteile
-selbst (`position_pct`, gleicher Parameter im Backtest). Keine festen Euro- oder
-Allokationsbudgets; bis zu 100 % des freien virtuellen Kapitals sind möglich.
+selbst (`position_pct`, gleicher Parameter im Backtest). Keine festen Eurobudgets;
+die neu bestätigte Obergrenze beträgt jedoch 25 % Kapital je Agent über alle
+seine Positionen und offenen Kauforders zusammen. Der Backtest darf hypothetische
+Anteile untersuchen; die Ausführung begrenzt sie auf diese gemeinsame Obergrenze.
 Signal-, Datenqualitäts-, Liquiditäts- und Cash-Prüfungen bleiben verpflichtend.
 Ein zentraler Live-Alpaca-News-Feed steht allen 100 Agenten zur Verfügung.
 

@@ -67,10 +67,12 @@ def evaluate_tx(db,c,agent_id,symbol,side='buy',at=None,expected_strategy=None):
             quote=c.execute('SELECT * FROM quotes WHERE symbol=?',(symbol,)).fetchone()
             bid=Decimal(quote['bid']) if quote else None
             protective=state(c,'kill_switch') or state(c,'risk_halt_'+pid) or clock['liquidating']
+            from .ledger import over_agent_cap
+            protective=protective or over_agent_cap(c,pid,agent_id,at)
             protective=protective or bid is not None and (bid<=Decimal(position['stop_usd']) or position['take_usd'] and bid>=Decimal(position['take_usd']))
             if protective:
                 # Explicit pre-defined safety exit, not a discretionary entry override.
-                observations['exit_condition']='stop/take_profit/kill/risk_limit/session_liquidation'
+                observations['exit_condition']='stop/take_profit/kill/risk_limit/agent_cap/session_liquidation'
                 valid=True
                 reason='Vordefinierte Schutz-/Tagesendebedingung erfüllt; frische Ausführungsdaten separat erforderlich'
                 return record(c,agent_id,symbol,side,sid,tf,valid,reason,observations,at)

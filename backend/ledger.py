@@ -32,7 +32,18 @@ def effective_limits(c):
         for key in limits:
             if key.startswith('max_') and key.endswith('_pct'):
                 limits[key]=1.0
+    limits['max_agent_pct']=min(limits['max_agent_pct'],.25)
     return limits
+
+
+def agent_exposure(positions,agent_id):
+    # Count committed capital and appreciation conservatively, across all symbols.
+    return sum(max(p['cost_u'],units(p['value_eur'])) for p in positions if p['agent_id']==agent_id)
+
+
+def over_agent_cap(c,pid,agent_id,at=None):
+    state=snapshot(c,pid,at)
+    return agent_exposure(state['positions'],agent_id)>units(state['equity_eur'])*effective_limits(c)['max_agent_pct']
 
 
 def cash_caps(c,pid):
@@ -223,7 +234,7 @@ class Ledger:
                 exposure = equity-p['cash_u']+p['reserved_u']
                 if exposure+reserve > capped_limit(caps,'max_exposure_eur',equity*limits['max_exposure_pct']):
                     raise RiskError("Gesamtexposure überschritten")
-                own = sum(x['cost_u'] for x in s['positions'] if x['agent_id']==agent_id)
+                own = agent_exposure(s['positions'],agent_id)
                 own += c.execute("SELECT COALESCE(SUM(reserved_u),0) FROM orders WHERE portfolio_id=? AND agent_id=? AND status IN ('pending','triggered')",(pid,agent_id)).fetchone()[0]
                 symbol_cost = sum(x['cost_u'] for x in s['positions'] if x['symbol']==symbol)
                 symbol_cost += c.execute("SELECT COALESCE(SUM(reserved_u),0) FROM orders WHERE portfolio_id=? AND symbol=? AND status IN ('pending','triggered')",(pid,symbol)).fetchone()[0]
@@ -356,7 +367,7 @@ class Ledger:
                 if initial-equity>=capped_limit(caps,'max_daily_loss_eur',initial*limits['max_daily_loss_pct']) or s['drawdown_pct']/100>=limits['max_drawdown_pct'] or units(s['drawdown_eur'])>=caps.get('max_drawdown_eur',float('inf'))*1_000_000:
                     raise RiskError('Verlust-/Drawdown-Limit vor Ausführung erreicht')
                 pending=c.execute("SELECT * FROM orders WHERE portfolio_id=? AND id!=? AND status IN ('pending','triggered')",(o['portfolio_id'],oid)).fetchall()
-                own=sum(x['cost_u'] for x in s['positions'] if x['agent_id']==o['agent_id'])+sum(x['reserved_u'] for x in pending if x['agent_id']==o['agent_id'])
+                own=agent_exposure(s['positions'],o['agent_id'])+sum(x['reserved_u'] for x in pending if x['agent_id']==o['agent_id'])
                 symbol_cost=sum(x['cost_u'] for x in s['positions'] if x['symbol']==o['symbol'])+sum(x['reserved_u'] for x in pending if x['symbol']==o['symbol'])
                 exposure=equity-p['cash_u']+sum(x['reserved_u'] for x in pending)
                 cost=gross+fee

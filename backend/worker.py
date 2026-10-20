@@ -4,7 +4,7 @@ import json
 import os
 import signal
 from datetime import datetime,timedelta,timezone
-from decimal import Decimal
+from decimal import Decimal,ROUND_UP
 from .config import Settings,ROOT,now
 from .db import DB,uid,dumps,event,put
 from .catalog import seed
@@ -240,6 +240,13 @@ class Worker:
                     self.db.set('kill_switch',True)
                     kill=True
         for row in self.db.all("SELECT * FROM orders WHERE status IN ('pending','triggered')"):
+            if row['side']=='buy':
+                from .ledger import agent_exposure
+                state=self.ledger.portfolio(row['portfolio_id'])
+                reserved=self.db.one("SELECT COALESCE(SUM(reserved_u),0) n FROM orders WHERE portfolio_id=? AND agent_id=? AND side='buy' AND status IN ('pending','triggered')",(row['portfolio_id'],row['agent_id']))['n']
+                if agent_exposure(state['positions'],row['agent_id'])+reserved>state['equity_eur']*1e6*limits['max_agent_pct']:
+                    self.ledger.cancel(row['id'],'Kapitalgrenze pro Agent einschließlich offener Kauforders')
+                    continue
             if (row['side']=='buy' and (not clock['trading'] or kill or self.db.get('risk_halt_'+row['portfolio_id']))) or clock['phase'] in ('review','stopped','closed','calendar_missing'):
                 self.ledger.cancel(row['id'],'Zeit-/Risikosperre')
                 continue
@@ -253,15 +260,28 @@ class Worker:
             if not q:
                 continue
             hit=Decimal(q['bid'])<=Decimal(pos['stop_usd']) or (pos['take_usd'] and Decimal(q['bid'])>=Decimal(pos['take_usd']))
-            if hit or kill or clock['liquidating'] or self.db.get('risk_halt_'+pos['portfolio_id']):
+            from .ledger import agent_exposure
+            state=self.ledger.portfolio(pos['portfolio_id'])
+            own=agent_exposure(state['positions'],pos['agent_id'])
+            cap=state['equity_eur']*1e6*limits['max_agent_pct']
+            excess=own-cap
+            if hit or kill or clock['liquidating'] or self.db.get('risk_halt_'+pos['portfolio_id']) or excess>0:
                 pending_orders=self.db.all("SELECT id,side FROM orders WHERE agent_id=? AND symbol=? AND status IN ('pending','triggered')",(pos['agent_id'],pos['symbol']))
                 if any(x['side']=='sell' for x in pending_orders):
                     continue
                 for pending in pending_orders:
                     self.ledger.cancel(pending['id'],'Schutzschließung hat Vorrang')
                 try:
-                    order=self.ledger.submit(pos['agent_id'],pos['symbol'],'sell',pos['qty'],
-                        f"protect-{pos['id']}-{uid()}",reason='Schutzstop/Take Profit/Not-Aus/Tagesende')
+                    qty=pos['qty']
+                    reason='Schutzstop/Take Profit/Not-Aus/Tagesende'
+                    if excess>0 and not (hit or kill or clock['liquidating'] or self.db.get('risk_halt_'+pos['portfolio_id'])):
+                        item=next(p for p in state['positions'] if p['id']==pos['id'])
+                        basis=max(item['cost_u'],int(item['value_eur']*1e6))
+                        fraction=min(Decimal(1),Decimal(str(excess+cap*.01))/Decimal(basis))
+                        qty=str(min(Decimal(pos['qty']),(Decimal(pos['qty'])*fraction).quantize(Decimal('.000001'),rounding=ROUND_UP)))
+                        reason='CEO-Kapitalgrenze pro Agent: Teilabbau auf unter 25 Prozent'
+                    order=self.ledger.submit(pos['agent_id'],pos['symbol'],'sell',qty,
+                        f"protect-{pos['id']}-{uid()}",reason=reason)
                     self.ledger.fill(order['id'])
                 except RiskError:
                     if not self.db.get('warn-'+pos['id']+'-'+clock['date']):

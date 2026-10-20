@@ -44,7 +44,7 @@ class StrategySpec(BaseModel):
     holding_bars: int = Field(ge=1,le=126)
     threshold: float = Field(ge=0,le=0.5)
     stop_pct: float = Field(ge=0.001,le=0.25)
-    position_pct: float = Field(default=1.0,gt=0,le=1)
+    position_pct: float = Field(gt=0,le=1)
     timeframe_minutes: int = Field(ge=15,le=1440)
     max_data_delay_minutes: int = Field(ge=0,le=1440)
     requires_full_market: bool
@@ -157,7 +157,7 @@ class AI:
         strategy=self.db.one('SELECT * FROM strategies WHERE agent_id=? ORDER BY version DESC LIMIT 1',(agent_id,))
         context=agent_context(self.db,agent_id)
         messages=[{'role':'user','content':dumps({'profile':agent,'strategy':strategy,
-             'context':context,'task':'Entwickle eine prüfbare Hypothese. Prüfe Datenlücken und Alternativen. Alle Agenten dürfen gemeinsame Daten über read_fund_data abfragen. Wähle hold/research bei fehlender Evidenz. Positionsgrößen konservativ innerhalb 8% Kapitalbudget und Stops. Vorschläge als sichere DSL; kein Python ausführen.'})}]
+             'context':context,'task':'Entwickle eine prüfbare Hypothese. Prüfe Datenlücken und Alternativen. Alle Agenten dürfen gemeinsame Daten über read_fund_data abfragen. Wähle hold/research bei fehlender Evidenz. Wähle position_pct anhand deiner Strategie und Backtests innerhalb der effektiven Kontext-Limits und des verfügbaren virtuellen Kapitals; beachte Stops. Vorschläge als sichere DSL; kein Python ausführen.'})}]
         receipts=[]
         for _ in range(4):
             response=await self.call('agent',messages,agent_id,tools=[TOOLS[0]],schema=AgentDecision.model_json_schema())
