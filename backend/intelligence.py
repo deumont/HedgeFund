@@ -44,6 +44,7 @@ class StrategySpec(BaseModel):
     holding_bars: int = Field(ge=1,le=126)
     threshold: float = Field(ge=0,le=0.5)
     stop_pct: float = Field(ge=0.001,le=0.25)
+    position_pct: float = Field(default=1.0,gt=0,le=1)
     timeframe_minutes: int = Field(ge=15,le=1440)
     max_data_delay_minutes: int = Field(ge=0,le=1440)
     requires_full_market: bool
@@ -115,7 +116,7 @@ class AI:
 
     async def call(self,kind,messages,agent_id=None,tools=None,schema=None):
         model=self.cfg.openai_manager_model if kind=='manager' else self.cfg.openai_model
-        limit=2400
+        limit=1100 if kind=='manager' else 2400
         params=dict(model=model,instructions=SYSTEM,input=messages,max_output_tokens=limit,
                     reasoning={'effort':'low'},store=False,include=['reasoning.encrypted_content'])
         if tools:
@@ -200,10 +201,18 @@ def agent_context(db,agent_id):
         agent=c.execute('SELECT * FROM agents WHERE id=?',(agent_id,)).fetchone()
         pid='fund' if agent['department']=='fund' else f'demo-{agent_id:03}' if agent['department']=='demo' else f'research-{agent_id:03}'
         portfolio=snapshot(c,pid)
+        from .ledger import effective_limits,cash_caps
+        risk=effective_limits(c)
+        caps=cash_caps(c,pid)
     return dict(as_of=now(),clock=phase(db),portfolio=portfolio,
-                risk_limits=db.get('risk_limits'),trading_enabled=db.get('trading_enabled'),
+                risk_limits=risk,fund_cash_limits=caps,paper_sizing_mode=db.get('paper_sizing_mode','capped'),
+                sizing_note='Strategie position_pct wird in Backtests und Paper-Sizing verwendet; kein Kredit, nur verfügbares virtuelles Kapital.',
+                trading_enabled=db.get('trading_enabled'),
                 quotes=db.all('SELECT * FROM quotes'),
-                news=db.all('SELECT * FROM news ORDER BY published_at DESC LIMIT 12'),
+                news=db.all('SELECT * FROM news ORDER BY published_at DESC LIMIT 30'),
+                news_access={'scope':'Alle verfügbaren Alpaca-News; gleicher Zugriff für alle 100 Agenten',
+                             'stream':db.one("SELECT name,status,detail FROM integrations WHERE name='news_stream'"),
+                             'more':'read_data news: weitere Meldungen paginiert abrufen'},
                 memories=db.all('SELECT * FROM memories WHERE agent_id=? ORDER BY created_at DESC LIMIT 8',(agent_id,)),
                 recent_trades=db.all('SELECT * FROM fills WHERE agent_id=? ORDER BY created_at DESC LIMIT 10',(agent_id,)),
                 tests=db.all('SELECT id,strategy_id,symbol,data_hash,created_at FROM backtests WHERE agent_id=? ORDER BY created_at DESC LIMIT 5',(agent_id,)),
@@ -224,7 +233,9 @@ def historical_excerpt(db,agent_id):
 
 def evaluate(db,agent_id):
     # Compare only normalized realized returns; no invented performance on untraded agents.
-    trades=db.all("SELECT * FROM fills WHERE agent_id=? AND side='sell' ORDER BY created_at",(agent_id,))
+    agent=db.one('SELECT department FROM agents WHERE id=?',(agent_id,))
+    pid='fund' if agent['department']=='fund' else f"{agent['department']}-{agent_id:03}"
+    trades=db.all("SELECT * FROM fills WHERE agent_id=? AND portfolio_id=? AND side='sell' ORDER BY created_at",(agent_id,pid))
     total=len(trades)
     gains=sum(x['realized_u'] for x in trades if x['realized_u']>0)
     losses=-sum(x['realized_u'] for x in trades if x['realized_u']<0)
@@ -249,7 +260,7 @@ def evaluate(db,agent_id):
                  sharpe=None,drawdown_pct=None,
                  daily_sharpe_status='Nicht hinreichend belegbar aus Realisierungen; benötigt zeitgewichtete Agenten-Equity',
                  p_value_normal_approx=pvalue,multiple_testing='100 Agenten; keine statistisch gesicherte Überlegenheit allein aus p-Wert',
-                 fee_eur=eur(sum(x['fee_u'] for x in db.all('SELECT fee_u FROM fills WHERE agent_id=?',(agent_id,)))),
+                 fee_eur=eur(sum(x['fee_u'] for x in db.all('SELECT fee_u FROM fills WHERE agent_id=? AND portfolio_id=?',(agent_id,pid)))),
                  eligible=enough,oos_status='Separate Backtests prüfen; historische Resultate sind keine Tageshandelsrenditen')
     agent=db.one('SELECT department FROM agents WHERE id=?',(agent_id,))
     curve=db.all('SELECT * FROM agent_equity WHERE agent_id=? AND department=? AND valuation_complete=1 ORDER BY created_at',(agent_id,agent['department']))
@@ -278,7 +289,20 @@ def evaluate(db,agent_id):
         score=None
     elif enough:
         score=round(max(0,min(100,(score or 50)-max_drawdown*100+(metrics['sharpe'] or 0)*2)),2)
+    metrics.update(stage='bewertbar' if enough else 'aufbauphase' if total else 'noch_keine_geschlossenen_trades',
+        evidence_progress={'closed_trades':total,'required_closed_trades':30,'trading_days':days,'required_trading_days':20,
+                           'daily_returns':len(daily_returns),'required_daily_returns':20},
+        progress_pct=round(min(1,total/30,days/20,len(daily_returns)/20)*100))
+    tests=db.all('SELECT result,symbol,created_at FROM backtests WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(agent_id,))
+    metrics['research_tests']=db.one('SELECT COUNT(*) n FROM backtests WHERE agent_id=?',(agent_id,))['n']
+    if tests:
+        oos=json.loads(tests[0]['result'])['out_of_sample']
+        metrics['latest_research_oos']={'symbol':tests[0]['symbol'],'return_pct':oos['return_pct'],'max_drawdown_pct':oos['max_drawdown_pct'],
+                                      'closed_trades':len(oos['trades']),'as_of':tests[0]['created_at'],'scope':'Historischer Research-Test; keine ausgeführten Fondsgewinne'}
     explanation='Vorläufige Bewertung anhand normierter abgeschlossener Trades und täglicher Agenten-Equity; OOS und Stabilität separat prüfen.' if enough else 'Unzureichende Evidenz: mindestens 30 abgeschlossene Trades an 20 Tagen und 20 Tagesrenditen; keine Gewinnrangfolge behauptet.'
+    if agent['department']=='research':
+        metrics['stage']='research'
+        explanation=f"Research: {metrics['research_tests']} reproduzierbare Backtests gespeichert. OOS-Ergebnisse separat ausgewiesen; keine aktuelle Handelsrendite und kein freigegebenes Leistungsranking."
     with db.tx() as c:
         c.execute('INSERT INTO evaluations VALUES(?,?,?,?,?,?)',(uid(),agent_id,score,dumps(metrics),explanation,now()))
     return dict(agent_id=agent_id,score=score,metrics=metrics,explanation=explanation)
@@ -350,7 +374,11 @@ def read_data(db,dataset,agent_id=None,offset=0):
         with db.tx() as c:
             return snapshot(c,'fund')
     if dataset=='risk':
-        return {'limits':db.get('risk_limits'),'kill_switch':db.get('kill_switch'),'confirmed':db.get('risk_confirmed'),'clock':phase(db),'as_of':now()}
+        from .ledger import effective_limits,cash_caps
+        with db.tx() as c:
+            return {'limits':effective_limits(c),'fund_cash_limits':cash_caps(c,'fund'),
+                    'paper_sizing_mode':db.get('paper_sizing_mode','capped'),
+                    'kill_switch':db.get('kill_switch'),'confirmed':db.get('risk_confirmed'),'clock':phase(db),'as_of':now()}
     if dataset=='agent_detail':
         return agent_context(db,agent_id)
     if dataset=='agents':
@@ -387,30 +415,34 @@ def read_data(db,dataset,agent_id=None,offset=0):
     return {'rows':rows,'offset':offset,'next_offset':offset+len(rows),'as_of':now()}
 
 
-async def manager_chat(db,cfg,text):
+async def manager_chat(db,cfg,text,message_id=None):
     if not text.strip() or len(text)>6000:
         raise ValueError('Nachricht leer/zu lang')
-    mid=uid()
+    from .manager import reply_id,save_reply
+    mid=message_id or uid()
+    previous=db.one('SELECT * FROM chats WHERE id=?',(reply_id(mid),))
+    if previous:
+        return {'id':previous['id'],'content':previous['content'],'evidence':json.loads(previous['evidence'])}
     with db.tx() as c:
-        c.execute('INSERT INTO chats VALUES(?,?,?,?,?)',(mid,'user',text,'[]',now()))
-    history=db.all('SELECT role,content FROM chats ORDER BY created_at DESC LIMIT 12')
+        c.execute('INSERT OR IGNORE INTO chats VALUES(?,?,?,?,?)',(mid,'user',text,'[]',now()))
+    history=db.all('SELECT role,content FROM chats ORDER BY created_at DESC,rowid DESC LIMIT 6')
     messages=list(reversed(history))
     baseline={'fund':read_data(db,'fund'),'risk':read_data(db,'risk')}
     evidence=[{'tool':'initial_database_snapshot','result':baseline,'retrieved_at':now()}]
-    messages.append({'role':'user','content':'Aktueller Datenstand: '+dumps(baseline)})
+    messages.append({'role':'user','content':'Aktueller Datenstand: '+dumps(baseline)+'\nAntworte direkt und knapp, höchstens 80 Wörter und 3 Punkte. Nur belegte Fakten. Keine Einleitung, Wiederholung, Floskeln oder spekulativen Behauptungen. Unsicherheit in einem kurzen Satz benennen.'})
     ai=AI(db,cfg)
-    for _ in range(5):
-        response=await ai.call('manager',messages,tools=TOOLS)
+    for turn in range(3):
+        try:
+            response=await ai.call('manager',messages,tools=TOOLS if turn<2 else None)
+        except BudgetError as exc:
+            return save_reply(db,mid,str(exc)+'. Keine KI-Antwort erzeugt. Gespeicherte Strategien handeln unabhängig weiter.',evidence)
         messages.extend(response_inputs(response))
         calls=[x for x in response.output if x.type=='function_call']
         if not calls:
             answer=response.output_text
             if not answer:
                 raise RuntimeError('Leere Managerantwort')
-            cid=uid()
-            with db.tx() as c:
-                c.execute('INSERT INTO chats VALUES(?,?,?,?,?)',(cid,'assistant',answer,dumps(evidence),now()))
-            return {'id':cid,'content':answer,'evidence':evidence}
+            return save_reply(db,mid,answer,evidence)
         for call in calls:
             args={}
             try:

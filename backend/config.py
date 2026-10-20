@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     session_secret: str = ""
     ceo_password_hash: str = ""
     database_path: str = str(ROOT / "data" / "fund.sqlite3")
+    supabase_url: str = ""
+    supabase_secret_key: str = ""
+    cloud_sync_enabled: bool = False
+    cloud_sync_seconds: int = 60
 
     @property
     def symbols(self):

@@ -120,6 +120,11 @@ class Worker:
         with self.db.tx() as c:
             c.execute('UPDATE jobs SET status=?,error=?,updated_at=? WHERE id=?',(status,error,now(),job['id']))
             event(c,'job_'+status,error,job['agent_id'],level='warning',data={'job_id':job['id'],'kind':job['kind']})
+        if job['kind']=='chat':
+            from .manager import save_reply
+            mid=json.loads(job['payload']).get('message_id')
+            if mid:
+                save_reply(self.db,mid,'Anfrage konnte nicht abgeschlossen werden: '+error,[{'source':'Systemmeldung','job_id':job['id']}])
 
     def claim(self):
         with self.db.tx() as c:
@@ -145,7 +150,7 @@ class Worker:
         if self.cfg.has_alpaca:
             enqueue(self.db,'calendar',priority=2,dedupe='calendar-'+day)
             enqueue(self.db,'assets',priority=3,dedupe='assets-'+day)
-            enqueue(self.db,'news',priority=5,dedupe='news-'+stamp.isoformat()[:15])
+            enqueue(self.db,'news',priority=5,dedupe='news-'+stamp.isoformat()[:16])
             enqueue(self.db,'broker_reconcile',priority=3,dedupe='broker-'+stamp.isoformat()[:16])
             if clock['trading']:
                 enqueue(self.db,'intraday',priority=4,dedupe='bars15-'+stamp.isoformat()[:16])
@@ -212,7 +217,9 @@ class Worker:
         clock=clock or phase(self.db)
         kill=self.db.get('kill_switch')
         # Independent continuous loss limits, even when no model request is running.
-        limits=self.db.get('risk_limits')
+        with self.db.tx() as c:
+            from .ledger import effective_limits,cash_caps
+            limits=effective_limits(c)
         stamp=datetime.now(timezone.utc)
         day_start=stamp.astimezone(BERLIN).replace(hour=0,minute=0,second=0,microsecond=0).astimezone(timezone.utc).isoformat()
         for p in self.db.all("SELECT DISTINCT portfolio_id FROM positions"):
@@ -220,7 +227,8 @@ class Worker:
             state=self.ledger.portfolio(pid)
             opening=self.db.one('SELECT equity_u FROM equity WHERE portfolio_id=? AND created_at<? AND valuation_complete=1 ORDER BY created_at DESC LIMIT 1',(pid,day_start))
             initial=opening['equity_u']/1e6 if opening else state['initial_eur']
-            caps=self.db.get('fund_cash_limits',{}) if pid=='fund' else {}
+            with self.db.tx() as c:
+                caps=cash_caps(c,pid)
             day_limit=min(initial*limits['max_daily_loss_pct'],caps.get('max_daily_loss_eur',float('inf')))
             breach=state['valuation_complete'] and (state['drawdown_pct']/100>=limits['max_drawdown_pct']
                     or initial-state['equity_eur']>=day_limit
@@ -290,7 +298,7 @@ class Worker:
         if kind=='edgar':
             return await self.providers.edgar(payload['cik'],payload['symbol'])
         if kind=='chat':
-            return await manager_chat(self.db,self.cfg,payload['text'])
+            return await manager_chat(self.db,self.cfg,payload['text'],payload.get('message_id'))
         if kind=='openai_test':
             response=await self.ai.call('connection_test',[{'role':'user','content':'Antworte nur mit OK als Verbindungstest.'}])
             return {'response_id':response.id,'text':response.output_text}

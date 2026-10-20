@@ -19,7 +19,7 @@ from pydantic import BaseModel,Field
 from .config import Settings,ROOT,now,eur,units
 from .db import DB,uid,dumps,event,put
 from .catalog import seed
-from .ledger import Ledger,RiskError,snapshot
+from .ledger import Ledger,RiskError,snapshot,effective_limits,cash_caps
 from .calendar import phase,BERLIN
 from .intelligence import read_data,evaluate,propose_swap
 from .worker import enqueue
@@ -72,7 +72,23 @@ def create_app(cfg=None,db=None):
     db.init()
     seed(db)
     ledger=Ledger(db)
-    app=FastAPI(title='ATLAS Paper Fund',docs_url=None,redoc_url=None,openapi_url=None)
+    @asynccontextmanager
+    async def lifespan(app):
+        from .cloud import CloudBridge
+        from .providers import Providers
+        stop=asyncio.Event()
+        cloud=asyncio.create_task(CloudBridge(db,cfg).run(stop))
+        provider=Providers(db,cfg)
+        news=asyncio.create_task(provider.news_stream())
+        try:
+            yield
+        finally:
+            stop.set()
+            provider.stopping.set()
+            cloud.cancel()
+            news.cancel()
+            await asyncio.gather(cloud,news,return_exceptions=True)
+    app=FastAPI(title='ATLAS Paper Fund',docs_url=None,redoc_url=None,openapi_url=None,lifespan=lifespan)
     app.state.db=db
     app.add_middleware(TrustedHostMiddleware,allowed_hosts=['127.0.0.1','localhost','testserver'])
 
@@ -161,7 +177,7 @@ def create_app(cfg=None,db=None):
         fund['day_pnl_eur']=fund['equity_eur']-start
         fund['day_return_pct']=(fund['equity_eur']/start-1)*100 if start else 0
         heartbeat=db.get('worker_heartbeat')
-        worker_online=bool(heartbeat and (datetime.now(timezone.utc)-datetime.fromisoformat(heartbeat)).total_seconds()<20 and db.get('worker_identity',{}).get('pid',0)>0)
+        worker_online=bool(heartbeat and (datetime.now(timezone.utc)-datetime.fromisoformat(heartbeat)).total_seconds()<45 and db.get('worker_identity',{}).get('pid',0)>0)
         benchmark=db.all('SELECT * FROM benchmark WHERE symbol=\'SPY\' ORDER BY created_at')
         benchmark_result=None
         if benchmark:
@@ -191,11 +207,15 @@ def create_app(cfg=None,db=None):
 
     @app.get('/api/agents')
     def agents():
+        from .agent_state import agent_states
+        states=agent_states(db)
         rows=db.all('SELECT * FROM agents ORDER BY id')
         for row in rows:
             e=db.one('SELECT * FROM evaluations WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(row['id'],))
-            stats=db.one('SELECT COALESCE(SUM(realized_u),0) pnl_u,COUNT(*) trades FROM fills WHERE agent_id=?',(row['id'],))
-            row.update(evaluation=e,stats=stats)
+            if not e or (datetime.now(timezone.utc)-datetime.fromisoformat(e['created_at'])).total_seconds()>300:
+                evaluate(db,row['id'])
+                e=db.one('SELECT * FROM evaluations WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(row['id'],))
+            row.update(evaluation=e,**states[row['id']])
         return rows
 
     @app.get('/api/agents/{aid}')
@@ -203,7 +223,12 @@ def create_app(cfg=None,db=None):
         profile=db.one('SELECT * FROM agents WHERE id=?',(aid,))
         if not profile:
             raise HTTPException(404,'Agent fehlt')
+        latest=db.one('SELECT created_at FROM evaluations WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(aid,))
+        if not latest or (datetime.now(timezone.utc)-datetime.fromisoformat(latest['created_at'])).total_seconds()>300:
+            evaluate(db,aid)
         result={'profile':profile}
+        from .agent_state import agent_states
+        result.update(agent_states(db,[aid])[aid])
         for table in ['strategies','memories','analyses','backtests','fills','positions','evaluations','events','agent_equity','signal_decisions']:
             result[table]=db.all(f'SELECT * FROM {table} WHERE agent_id=? ORDER BY '+('id' if table=='events' else 'created_at')+' DESC LIMIT 100',(aid,))
         result['decisions']=[x for x in db.all('SELECT * FROM decisions ORDER BY created_at DESC') if aid in [json.loads(x['payload']).get(k) for k in ('agent_id','first','second')]][:50]
@@ -235,13 +260,12 @@ def create_app(cfg=None,db=None):
 
     @app.get('/api/chats')
     def chats():
-        return db.all('SELECT * FROM chats ORDER BY created_at LIMIT 1000')
+        return db.all('SELECT * FROM (SELECT rowid seq,* FROM chats ORDER BY created_at DESC,rowid DESC LIMIT 200) ORDER BY created_at,seq')
 
     @app.post('/api/chat')
     def chat(body:Chat):
-        if not cfg.openai_api_key:
-            raise HTTPException(409,'OPENAI_API_KEY fehlt. Manager-Chat ist blockiert; keine Antwort simuliert.')
-        return {'job_id':enqueue(db,'chat',{'text':body.text},priority=1)}
+        from .manager import create_request
+        return create_request(db,cfg,body.text)
 
     @app.post('/api/task')
     def task(body:Task):
@@ -376,6 +400,9 @@ def create_app(cfg=None,db=None):
     @app.get('/api/system')
     def system():
         memory=psutil.virtual_memory()
+        with db.tx() as c:
+            active_risk=effective_limits(c)
+            active_caps=cash_caps(c,'fund')
         disk=psutil.disk_usage(ROOT.anchor)
         usage=db.all("SELECT agent_id,model,COUNT(*) requests,SUM(input_tokens) input_tokens,SUM(output_tokens) output_tokens,SUM(CASE WHEN status='settled' THEN cost_u ELSE reserved_u END) cost_bound_u FROM usage GROUP BY agent_id,model")
         stamp=datetime.now(timezone.utc).astimezone(BERLIN)
@@ -388,13 +415,13 @@ def create_app(cfg=None,db=None):
                 'worker_heartbeat':db.get('worker_heartbeat'),'engine_enabled':db.get('engine_enabled'),
                 'queue':db.all('SELECT status,COUNT(*) count FROM jobs GROUP BY status'),
                 'usage':usage,'budget_monthly_eur':float(cfg.monthly_budget_eur),'budget_daily_eur':float(cfg.daily_budget_eur),**totals,
-                'risk':db.get('risk_limits'),'fund_cash_limits':db.get('fund_cash_limits',{}),'risk_confirmed':db.get('risk_confirmed'),
+                'risk':active_risk,'fund_cash_limits':active_caps,'paper_sizing_mode':db.get('paper_sizing_mode','capped'),'risk_confirmed':db.get('risk_confirmed'),
                 'configured':{'openai':bool(cfg.openai_api_key),'alpaca':cfg.has_alpaca,'sec':bool(cfg.sec_user_agent)},
                 'model':cfg.openai_model,'manager_model':cfg.openai_manager_model,'feed':cfg.alpaca_feed,
                 'market_data_policy':db.get('market_data_policy'),
                 'watchlist':cfg.symbols,'fx':db.one('SELECT * FROM fx ORDER BY date DESC LIMIT 1'),
                 'backups':len(list((ROOT/'backups').glob('fund-*.sqlite3'))),'paper_only':True,
-                'remote_access':'blocked: nur Loopback. HTTPS/VPN und separater Offline-Snapshot-Host noch nicht eingerichtet.'}
+                'remote_access':'Supabase: geschützte Cloud-Konsole; lokale Engine führt geprüfte Aktionen aus' if cfg.cloud_sync_enabled else 'blocked: nur Loopback. Supabase-Konsole noch nicht eingerichtet.'}
 
     @app.websocket('/api/live')
     async def live(ws:WebSocket):

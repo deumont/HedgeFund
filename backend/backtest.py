@@ -8,6 +8,9 @@ from .config import now
 
 
 def validate_spec(spec):
+    allocation=spec.get('position_pct',1.0)
+    if type(allocation) not in (int,float) or not math.isfinite(allocation) or not 0<allocation<=1:
+        raise ValueError('Positionsanteil muss zwischen 0 und 1 liegen')
     timeframe=spec.get('timeframe_minutes',15)
     if type(timeframe) is not int or timeframe<15 or timeframe%15 or timeframe>1440:
         raise ValueError('Strategie-Zeitrahmen mindestens 15 Minuten, in 15-Minuten-Schritten')
@@ -65,13 +68,14 @@ def simulate(bars,spec,initial=3000,cost_bps=12):
         # Signals only see previous closes; execution at following open plus friction.
         if pending=='buy' and qty==0:
             entry=op*(1+friction)
-            qty=cash/entry
-            cash=0
+            invested=cash*spec.get('position_pct',1.0)
+            qty=invested/entry
+            cash-=invested
             held=0
         elif pending=='sell' and qty:
             price=op*(1-friction)
-            cash=qty*price
-            trades.append(dict(time=bar['time'],return_pct=(price/entry-1)*100,pnl=cash-qty*entry))
+            cash+=qty*price
+            trades.append(dict(time=bar['time'],return_pct=(price/entry-1)*100,pnl=qty*(price-entry)))
             qty=0
         pending=None
         if qty:
@@ -79,8 +83,8 @@ def simulate(bars,spec,initial=3000,cost_bps=12):
             stop=entry*(1-spec['stop_pct'])
             if lo<=stop:
                 price=min(op,stop)*(1-friction)
-                cash=qty*price
-                trades.append(dict(time=bar['time'],return_pct=(price/entry-1)*100,pnl=cash-qty*entry))
+                cash+=qty*price
+                trades.append(dict(time=bar['time'],return_pct=(price/entry-1)*100,pnl=qty*(price-entry)))
                 qty=0
         equity=cash+qty*close
         high=max(high,equity)

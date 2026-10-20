@@ -2,7 +2,7 @@
 import json
 from decimal import Decimal, ROUND_DOWN
 from .config import units, eur
-from .ledger import RiskError, meta, snapshot, valid_quote, latest_fx, TECH, capped_limit
+from .ledger import RiskError, meta, snapshot, valid_quote, latest_fx, TECH, capped_limit,effective_limits,cash_caps
 
 D = Decimal
 
@@ -20,7 +20,7 @@ def plan_order(db, agent_id, symbol, side, at=None):
             if not position:
                 raise RiskError('Keine gedeckte Position')
             return dict(qty=position['qty'])
-        limits = meta(c, 'risk_limits')
+        limits = effective_limits(c)
         quote = valid_quote(c, symbol, limits, at)
         fx = latest_fx(c, at, limits['fx_max_age_days'])
         state = snapshot(c, pid, at)
@@ -34,7 +34,7 @@ def plan_order(db, agent_id, symbol, side, at=None):
         cost_per_share = ceiling / fx * (1 + D(str(limits['fee_bps'])) / 10000)
         risk_per_share = (ceiling - stop + ceiling * D('.001')) / fx
         equity = units(state['equity_eur'])
-        caps = meta(c, 'fund_cash_limits', {}) if pid == 'fund' else {}
+        caps = cash_caps(c,pid)
         positions = state['positions']
         pending = c.execute("SELECT * FROM orders WHERE portfolio_id=? AND status IN ('pending','triggered')", (pid,)).fetchall()
         own = sum(p['cost_u'] for p in positions if p['agent_id'] == agent_id)
@@ -46,6 +46,11 @@ def plan_order(db, agent_id, symbol, side, at=None):
             capped_limit(caps, 'max_position_eur', equity * limits['max_position_pct']),
             capped_limit(caps, 'max_exposure_eur', equity * limits['max_exposure_pct']) - exposure,
             equity * limits['max_symbol_pct'] - symbol_cost]
+        if meta(c,'paper_sizing_mode')=='strategy':
+            # Same allocation parameter as the historical simulation; no trade quota.
+            from .backtest import validate_spec
+            validate_spec(spec)
+            cash_budgets.append(equity*spec.get('position_pct',1.0)-own)
         if symbol in TECH:
             bucket = sum(p['cost_u'] for p in positions if p['symbol'] in TECH)
             bucket += sum(p['reserved_u'] for p in pending if p['symbol'] in TECH)

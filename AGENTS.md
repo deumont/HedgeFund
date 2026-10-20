@@ -34,3 +34,9 @@ als solcher zu melden; lokale Commits ersetzen keinen bestätigten Upload.
 mindestens 15-Minuten-Zeitrahmen. Keine Order ohne deterministisches Signal,
 geeignete Marktdaten und unabhängige Risiko-/Kapitalprüfung. Die bestätigten festen
 Fondsgrenzen und API-Budgets respektieren. Keine erfundenen Integrationsberichte.
+
+CEO-Änderung vom 20.10.2026: Im ausdrücklich freigegebenen internen Paper-Modus
+`paper_sizing_mode=strategy` wählen die Strategien `position_pct` selbst; feste
+Euro-, Allokations- und Verlustbudgets sind dort aufgehoben. Verfügbares virtuelles
+Kapital, Reservierungen, Liquidität, valide Signale, Datenqualität, mindestens
+15-Minuten-Zeitrahmen und Paper-only bleiben zwingend. API-Budgets unverändert.

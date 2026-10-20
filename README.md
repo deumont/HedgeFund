@@ -92,11 +92,18 @@ Ohne PC gibt es keinen lokalen Webserver und keine Hintergrundarbeit.
   und umgeht keine Windows-Anmeldung. Fehlerhafte Prozesse werden neu gestartet.
 - Ein manuell pausierter Worker wird erst mit `Start.cmd` wieder freigegeben.
 
-Fernzugriff, LAN-Bindung, Vercel-Hosting und ein von diesem PC unabhängiger
-Offline-Snapshot-Host sind **nicht eingerichtet**. Keine API wurde öffentlich
-freigegeben. Bei Verbindungsabbruch kann ein bereits geladener Browser seinen
-letzten Snapshot mit Offline-Markierung anzeigen. Ein neu geöffneter Browser
-kann einen ausgeschalteten PC nicht erreichen.
+Die Vercel-Konsole kann private Snapshots und Befehle über Supabase verwenden.
+Schema und lokale Synchronisation sind eingerichtet; das persönliche CEO-Konto
+muss noch erstellt und explizit freigeschaltet werden. Die lokale API bleibt auf
+Loopback. Bei ausgeschaltetem PC sind gespeicherte Cloud-Snapshots erreichbar,
+neue Trades benötigen weiterhin die lokale Engine. Einrichtung und Grenzen:
+[Private Cloud-Konsole](docs/CLOUD.md).
+
+Im freigegebenen Paper-Experimentiermodus wählen Strategien ihre Positionsanteile
+selbst (`position_pct`, gleicher Parameter im Backtest). Keine festen Euro- oder
+Allokationsbudgets; bis zu 100 % des freien virtuellen Kapitals sind möglich.
+Signal-, Datenqualitäts-, Liquiditäts- und Cash-Prüfungen bleiben verpflichtend.
+Ein zentraler Live-Alpaca-News-Feed steht allen 100 Agenten zur Verfügung.
 
 ## Technische Prüfung und Fortsetzung
 

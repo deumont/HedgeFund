@@ -88,6 +88,15 @@ werden nicht als tatsächlich gehandelte Fondsgewinne ausgewiesen.
 
 ## Freigabe durch CEO
 
+**Aktualisierung 20.10.2026, 18 Uhr Berlin:** Der CEO hat die festen Positions-,
+Exposure- und Verlustbudgets für interne Paper-Experimente aufgehoben.
+`paper_sizing_mode=strategy` verwendet den selbst gewählten Strategieparameter
+`position_pct` auch im Backtest. Bestehende Strategien ohne Parameter verwenden
+wie bisher im Backtest das verfügbare Kapital; bis zu 100 % sind möglich.
+Kein Kredit, kein Short, keine erfundenen Signale und keine ungeeigneten Daten.
+Die folgenden ursprünglichen Eurogrenzen bleiben nur als reversibler Altstand
+gespeichert. OpenAI-Budget bleibt unverändert.
+
 Monatsbudget 30 EUR und beide API-Zugänge sind lokal eingerichtet und geprüft.
 CEO hat am 20.10.2026 ausdrücklich „Paper-Handel mit diesen Grenzen freigeben“
 bestätigt. Die Freigabe ist dauerhaft protokolliert und über die authentifizierte
@@ -114,9 +123,34 @@ Es gibt keine Bestätigung, die den Paper-only-Modus aufheben könnte.
 - Laufende Engine hat am 20.10.2026 ab 17:01 Berlin interne Paper-Fills für
   NVDA (Fund-Agent 85), SPY (Demo-Agent 61) und AMZN (Fund-Agent 76) gespeichert.
   Signalnachweis und Ledger-Abgleich geprüft. Keine Alpaca-Brokerfills behauptet.
-- Trading Floor zeigt nun Signal-/HOLD-Gründe, Ausführungsablehnungen und Fillzahl.
+- Trading Floor zeigt Handelssignale, Ausführungsablehnungen und Fillzahl.
+  HOLD-Entscheidungen bleiben ausschließlich im Audit gespeichert und werden in
+  den normalen UI-Listen ausgeblendet.
 - Lokaler Passwort-Login, sämtliche Datenendpunkte und authentifizierter WebSocket
   funktionieren im Smoke-Test. Die Vercel-Website hat keine angeschlossene API;
   statt eines kaputten Passwortformulars führt sie zur lokalen geschützten Konsole.
-- Für geräteübergreifenden Login fehlt weiterhin ein geschützter Backend-Host.
-  Deployment-Details: DEPLOYMENT.md. Zugangsdaten bleiben ausschließlich lokal.
+- Die frühere reine lokale Login-Lösung wird durch Supabase Auth, private
+  Snapshots und eine authentifizierte Befehlswarteschlange ergänzt. Schema und
+  Synchronisation funktionieren; CEO-Konto/Freischaltung stehen noch aus.
+  Details: CLOUD.md. Servergeheimnisse bleiben ausschließlich lokal.
+
+## Konsole und Nachrichten — 20.10.2026
+
+- Vermögenskurve: echte Zeitachse, lesbare Euro-Achse, keine falschen Zacken aus
+  alten Einstandskosten-Fallbacks. Bestätigte Punkte durchgezogen, Verbindungen
+  über Bewertungslücken gestrichelt; aktueller Endpunkt entspricht dem Fonds-KPI.
+  Letzte bestätigte Kurse werden für neue unvollständige Bewertungen bewahrt,
+  dürfen aber keine frischen Ausführungskurse ersetzen. Auditdaten unverändert.
+- Manager: kurze Faktenantworten direkt aus Systemdaten, dauerhafte Hintergrundjobs,
+  persistierte Antworten auch bei geschlossenem Fenster, idempotente Speicherung.
+  Ausgeschöpftes KI-Budget wird konkret gemeldet, nicht durch Fantasieantworten ersetzt.
+- Realisierter/unrealisierter P&L farblich hervorgehoben. Jeder Agent hat einen
+  aus Positionen, Warteschlange, Sitzung, Daten und Worker abgeleiteten Status.
+- Bewertungen aktualisieren sich; fehlende Evidenz wird als Aufbaufortschritt
+  statt erfundenem Score gezeigt. Research-OOS-Ergebnisse bleiben separat.
+- Ein zentraler, authentifizierter Alpaca-News-WebSocket abonniert `news:["*"]`.
+  Alle 100 Agenten haben denselben Feed und können weitere Meldungen paginieren.
+  REST-Fallback jede Minute; keine Beschränkung auf die Handelswatchlist.
+  Keine Garantie für sämtliche Weltnachrichten oder ungenehmigte Datenquellen.
+- 132 automatisierte Tests bestanden, einschließlich Order-Signalen, Datenqualität,
+  neuem Paper-Sizing, News-Zugriff, Chat-Persistenz und Cloud-Befehlsvalidierung.

@@ -175,7 +175,7 @@ class Providers:
         client = data_client(NewsClient,self.cfg)
         previous = self.db.get('last_news_at')
         start = datetime.fromisoformat(previous) if previous else datetime.now(timezone.utc)-timedelta(days=1)
-        result = client.get_news(NewsRequest(symbols=','.join(self.cfg.symbols),start=start,limit=50,include_content=False))
+        result = client.get_news(NewsRequest(start=start,limit=50,include_content=False,sort='asc'))
         # NewsSet exposes .news; version-safe fallback to .data['news'].
         items = getattr(result,'news',None)
         if items is None:
@@ -184,17 +184,69 @@ class Providers:
         for item in items:
             row = plain(item)
             stamp = str(row['created_at'])
-            with self.db.tx() as c:
-                added = c.execute("INSERT OR IGNORE INTO news VALUES(?,?,?,?,?,?,?,?,?,?)",(
-                    str(row['id']),row.get('source','Alpaca News'),row['headline'],row.get('summary',''),
-                    row.get('url',''),dumps(row.get('symbols',[])),stamp,now(),'Quellenmeldung, nicht unabhängig verifiziert','noch nicht von KI bewertet')).rowcount
-            if added:
-                self.db.event('news_received',row['headline'],data={'news_id':str(row['id'])})
+            self.store_news(row)
             if newest is None or datetime.fromisoformat(stamp)>datetime.fromisoformat(newest):
                 newest=stamp
         if newest:
             self.db.set('last_news_at',newest)
         self.db.integration('news','connected',f'{len(items)} Meldungen abgerufen; tatsächliche Empfangszeiten gespeichert, keine 1-Sekunden-Garantie')
+
+    def store_news(self,row):
+        """One shared, deduplicated feed for all roles, including off-watchlist news."""
+        if not row.get('id') or not row.get('headline') or not row.get('created_at'):
+            raise ValueError('Unvollständige Nachrichtenmeldung')
+        stamp=datetime.fromisoformat(str(row['created_at']).replace('Z','+00:00'))
+        if stamp.tzinfo is None:
+            raise ValueError('Nachrichtenzeit ohne Zeitzone')
+        with self.db.tx() as c:
+            old=c.execute('SELECT * FROM news WHERE id=?',(str(row['id']),)).fetchone()
+            c.execute("INSERT INTO news VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET headline=excluded.headline,summary=excluded.summary,url=excluded.url,symbols=excluded.symbols",(
+                str(row['id']),row.get('source') or 'Alpaca News',row['headline'],row.get('summary') or '',
+                row.get('url') or '',dumps(row.get('symbols',[])),stamp.isoformat(),now(),
+                'Quellenmeldung, nicht unabhängig verifiziert','Für alle 100 Agenten verfügbar'))
+        if not old:
+            self.db.event('news_received',row['headline'],data={'news_id':str(row['id'])})
+
+    async def news_stream(self):
+        if not self.cfg.has_alpaca:
+            self.db.integration('news_stream','blocked','Alpaca-Schlüsselpaar fehlt')
+            return
+        delay=2
+        while not self.stopping.is_set():
+            try:
+                async with connect('wss://stream.data.alpaca.markets/v1beta1/news',open_timeout=15,ping_interval=20,max_queue=256) as ws:
+                    await asyncio.wait_for(ws.recv(),15)
+                    await ws.send(dumps({'action':'auth','key':self.cfg.alpaca_paper_api_key,'secret':self.cfg.alpaca_paper_secret_key}))
+                    auth=json.loads(await asyncio.wait_for(ws.recv(),15))
+                    if not any(x.get('msg')=='authenticated' for x in auth):
+                        raise RuntimeError('News-Authentifizierung fehlgeschlagen')
+                    await ws.send(dumps({'action':'subscribe','news':['*']}))
+                    subscribed=False
+                    while not self.stopping.is_set():
+                        try:
+                            items=json.loads(await asyncio.wait_for(ws.recv(),30))
+                        except asyncio.TimeoutError:
+                            await ws.ping()
+                            continue
+                        for row in items:
+                            if row.get('T')=='error':
+                                raise RuntimeError('News-Feed nicht verfügbar')
+                            if row.get('T')=='subscription' and '*' in row.get('news',[]):
+                                subscribed=True
+                                delay=2
+                                self.db.integration('news_stream','connected','Live-Alpaca-News: alle verfügbaren Symbole, gemeinsam für 100 Agenten; keine Garantie vollständiger Weltnachrichten.')
+                            if row.get('T')=='n' and subscribed:
+                                self.store_news(row)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self.db.integration('news_stream','error',safe_error(exc))
+                try:
+                    await asyncio.wait_for(self.stopping.wait(),delay)
+                except asyncio.TimeoutError:
+                    pass
+                delay=min(60,delay*2)
+        self.db.integration('news_stream','offline','News-Verbindung beendet')
 
     async def fx(self):
         async with httpx.AsyncClient(timeout=20,follow_redirects=False,trust_env=False) as client:

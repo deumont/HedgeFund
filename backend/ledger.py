@@ -24,6 +24,23 @@ def capped_limit(caps,key,percentage_limit):
     return min(percentage_limit,units(caps[key])) if key in caps else percentage_limit
 
 
+def effective_limits(c):
+    limits=meta(c,'risk_limits').copy()
+    if meta(c,'paper_sizing_mode')=='strategy':
+        # Cash-only experimental mode explicitly authorized by the CEO.
+        # Data quality, fees, stops, signal gates and cash accounting stay intact.
+        for key in limits:
+            if key.startswith('max_') and key.endswith('_pct'):
+                limits[key]=1.0
+    return limits
+
+
+def cash_caps(c,pid):
+    if meta(c,'paper_sizing_mode')=='strategy':
+        return {}
+    return meta(c,'fund_cash_limits',{}) if pid=='fund' else {}
+
+
 def latest_fx(c, at=None, max_days=5):
     at = at or datetime.now(timezone.utc)
     row = c.execute("SELECT * FROM fx WHERE date<=? ORDER BY date DESC LIMIT 1",
@@ -65,15 +82,26 @@ def snapshot(c, pid, at=None):
         fx = None
     for pos in c.execute("SELECT * FROM positions WHERE portfolio_id=?", (pid,)):
         value = pos['cost_u']
+        valued=False
+        mark=meta(c,'valuation-mark-'+pos['id'])
+        mark_at=mark['market_at'] if mark else None
         try:
             q = valid_quote(c, pos['symbol'], limits, at)
             if fx is None:
                 raise RiskError("FX fehlt")
             value = units(D(pos['qty']) * D(q['bid']) / fx)
+            valued=True
+            mark_at=q['market_at']
+            put(c,'valuation-mark-'+pos['id'],{'bid':q['bid'],'fx':str(fx),'market_at':mark_at})
         except RiskError:
             complete = False
+            if mark:
+                # Retain the last verified mark instead of snapping the curve back
+                # to entry cost. It remains explicitly unsuitable for order risk.
+                value=units(D(pos['qty'])*D(mark['bid'])/D(mark['fx']))
         position_value += value
-        details.append(dict(pos) | dict(value_eur=eur(value), unrealized_eur=eur(value-pos['cost_u'])))
+        details.append(dict(pos) | dict(value_eur=eur(value),unrealized_eur=eur(value-pos['cost_u']) if valued or mark else None,
+            valuation_complete=valued,valuation_as_of=mark_at,valuation_source='current_quote' if valued else 'last_verified_quote' if mark else 'entry_cost_fallback'))
     equity = p['cash_u'] + position_value
     high = c.execute("SELECT MAX(equity_u) FROM equity WHERE portfolio_id=? AND valuation_complete=1", (pid,)).fetchone()[0]
     high = max(high or p['initial_u'], equity)
@@ -145,7 +173,7 @@ class Ledger:
             clock = phase(self.db, at)
             if not clock['trading'] and not (side == 'sell' and clock['liquidating']):
                 raise RiskError(clock['reason'])
-            limits = meta(c, 'risk_limits')
+            limits = effective_limits(c)
             q = valid_quote(c, symbol, limits, at)
             fx = latest_fx(c, at, limits['fx_max_age_days'])
             asset = c.execute("SELECT * FROM assets WHERE symbol=?", (symbol,)).fetchone()
@@ -182,7 +210,7 @@ class Ledger:
                 if not s['valuation_complete']:
                     raise RiskError("Unvollständige Portfolio-Bewertung")
                 equity = units(s['equity_eur'])
-                caps=meta(c,'fund_cash_limits',{}) if pid=='fund' else {}
+                caps=cash_caps(c,pid)
                 start_local = datetime.combine(at.astimezone(BERLIN).date(), datetime.min.time(), BERLIN).astimezone(timezone.utc).isoformat()
                 opening = c.execute("SELECT equity_u FROM equity WHERE portfolio_id=? AND created_at>=? AND valuation_complete=1 ORDER BY created_at LIMIT 1", (pid,start_local)).fetchone()
                 start_equity = opening[0] if opening else p['initial_u']
@@ -292,7 +320,7 @@ class Ledger:
                 stream=c.execute("SELECT status FROM integrations WHERE name='market_stream'").fetchone()
                 if a['paused'] or meta(c,'kill_switch') or not meta(c,'risk_confirmed') or not meta(c,'trading_enabled') or meta(c,'risk_halt_'+o['portfolio_id']) or not stream or stream['status']!='connected':
                     return None
-            limits = meta(c,'risk_limits')
+            limits = effective_limits(c)
             q = valid_quote(c,o['symbol'],limits,at)
             fx = latest_fx(c,at,limits['fx_max_age_days'])
             qty = D(o['qty'])
@@ -321,7 +349,7 @@ class Ledger:
                 if not s['valuation_complete']:
                     raise RiskError('Unvollständige Portfolio-Bewertung vor Ausführung')
                 equity=units(s['equity_eur'])
-                caps=meta(c,'fund_cash_limits',{}) if o['portfolio_id']=='fund' else {}
+                caps=cash_caps(c,o['portfolio_id'])
                 day_start=datetime.combine(at.astimezone(BERLIN).date(),datetime.min.time(),BERLIN).astimezone(timezone.utc).isoformat()
                 opening=c.execute('SELECT equity_u FROM equity WHERE portfolio_id=? AND created_at>=? AND valuation_complete=1 ORDER BY created_at LIMIT 1',(o['portfolio_id'],day_start)).fetchone()
                 initial=opening[0] if opening else p['initial_u']
@@ -363,6 +391,8 @@ class Ledger:
                 entryfx = newqty*avg/(old_gross+qty*price/fx)
                 c.execute("INSERT OR REPLACE INTO positions VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                           (pos['id'] if pos else uid(),o['portfolio_id'],o['agent_id'],o['symbol'],str(newqty),str(avg),cost,str(entryfx),o['stop_usd'],o['take_usd'],pos['created_at'] if pos else now()))
+                position_id=c.execute('SELECT id FROM positions WHERE portfolio_id=? AND agent_id=? AND symbol=?',(o['portfolio_id'],o['agent_id'],o['symbol'])).fetchone()[0]
+                put(c,'valuation-mark-'+position_id,{'bid':q['bid'],'fx':str(fx),'market_at':q['market_at']})
             else:
                 if not pos or qty>D(pos['qty']):
                     raise RiskError("Positionsbestand nach Reservierung verändert")
@@ -400,9 +430,9 @@ class Ledger:
                 realized=c.execute('SELECT COALESCE(SUM(realized_u),0) FROM fills WHERE agent_id=? AND portfolio_id=?',(a['id'],pid)).fetchone()[0]
                 pstate=snapshot(c,pid)
                 positions=[x for x in pstate['positions'] if x['agent_id']==a['id']]
-                unrealized=sum(units(x['unrealized_eur']) for x in positions)
+                unrealized=sum(units(x['unrealized_eur'] or 0) for x in positions)
                 pnl=realized+unrealized
-                c.execute('INSERT INTO agent_equity VALUES(?,?,?,?,?,?,?,?)',(uid(),a['id'],dept,base,pnl,base+pnl,int(pstate['valuation_complete']),now()))
+                c.execute('INSERT INTO agent_equity VALUES(?,?,?,?,?,?,?,?)',(uid(),a['id'],dept,base,pnl,base+pnl,int(all(x['valuation_complete'] for x in positions)),now()))
             try:
                 q=valid_quote(c,'SPY',meta(c,'risk_limits'))
                 fx=latest_fx(c)
