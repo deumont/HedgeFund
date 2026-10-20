@@ -175,8 +175,38 @@ class Worker:
             for symbol in symbols:
                 side='sell' if positions else 'buy'
                 decision=self.signals.evaluate(aid,symbol,side,at)
-                if decision.valid and self.cfg.openai_api_key and self.db.get('engine_enabled'):
-                    enqueue(self.db,'analysis',{'signal_id':decision.id,'symbol':symbol,'side':side},aid,40,dedupe='signal-analysis-'+decision.id)
+                if decision.valid:
+                    self.execute_signal(aid,symbol,side,decision,at)
+
+    def execute_signal(self,aid,symbol,side,decision,at=None):
+        from .execution import plan_order
+        # The stored strategy is the decision maker. LLM research may improve future
+        # versions, but unavailable models/budgets must not disable a valid strategy.
+        final_action='HOLD'
+        order_id=None
+        try:
+            if side=='buy' and (not self.db.get('trading_enabled') or not self.db.get('risk_confirmed') or self.db.get('kill_switch')):
+                raise RiskError('Neue Positionen gesperrt: Handels-/Risikofreigabe oder Not-Aus')
+            bar=decision.observations.get('last_bar_end',decision.id)
+            key=f'strategy-{aid}-{symbol}-{side}-{decision.strategy_id}-{bar}'
+            order=self.db.one('SELECT * FROM orders WHERE client_id=?',(key,))
+            if order and order['status'] not in ('pending','triggered'):
+                return
+            if not order:
+                plan=plan_order(self.db,aid,symbol,side,at)
+                order=self.ledger.submit(aid,symbol,side,client_id=key,
+                    reason=decision.reason+'; gespeicherte Strategie, deterministische Risikogröße',at=at,**plan)
+            order_id=order['id']
+            fill=self.ledger.fill(order_id,at)
+            final_action='FILLED' if fill or order['status']=='filled' else 'ORDER_PENDING'
+            reason=decision.reason
+        except RiskError as exc:
+            reason=str(exc)
+        state={'signal_id':decision.id,'symbol':symbol,'side':side,'final_action':final_action,'order_id':order_id,'reason':reason}
+        marker=f'execution-decision-{aid}-{symbol}-{side}'
+        if self.db.get(marker)!=state:
+            self.db.event('trading_decision',reason,aid,data=state)
+            self.db.set(marker,state)
 
     def safety_tick(self,clock=None):
         clock=clock or phase(self.db)

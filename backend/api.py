@@ -181,8 +181,12 @@ def create_app(cfg=None,db=None):
                 'news':db.all('SELECT * FROM news ORDER BY published_at DESC LIMIT 6'),
                 'integrations':db.all('SELECT * FROM integrations ORDER BY name'),
                 'recent_fills':db.all("SELECT * FROM fills WHERE portfolio_id='fund' ORDER BY created_at DESC LIMIT 10"),
+                'execution':{'fills':db.one('SELECT COUNT(*) n FROM fills')['n'],
+                             'pending':db.one("SELECT COUNT(*) n FROM orders WHERE status IN ('pending','triggered')")['n'],
+                             'latest_decisions':db.all("SELECT agent_id,created_at,message,data FROM events WHERE kind='trading_decision' ORDER BY id DESC LIMIT 50"),
+                             'signals':db.all('SELECT s.* FROM signal_decisions s JOIN (SELECT agent_id,MAX(rowid) seq FROM signal_decisions GROUP BY agent_id) latest ON s.rowid=latest.seq ORDER BY s.agent_id')},
                 'decisions':db.all('SELECT * FROM decisions ORDER BY created_at DESC LIMIT 10'),
-                'active_traders':db.one("SELECT COUNT(*) n FROM agents WHERE department IN ('fund','demo') AND paused=0")['n'] if worker_online and cfg.openai_api_key and db.get('trading_enabled') and not db.get('kill_switch') and phase(db)['trading'] else 0,
+                'active_traders':db.one("SELECT COUNT(*) n FROM agents WHERE department IN ('fund','demo') AND paused=0")['n'] if worker_online and db.get('risk_confirmed') and db.get('trading_enabled') and not db.get('kill_switch') and phase(db)['trading'] else 0,
                 'as_of':now()}
 
     @app.get('/api/agents')

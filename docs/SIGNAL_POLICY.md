@@ -24,8 +24,10 @@ nicht neu erzeugt oder zurückgesetzt.
   Prüfung verlangt unabhängig eine frische echte Quote, FX, Sitzung, gedeckte
   Positionen, Kapital und Risikofreigabe. Mit ausschließlich 15 Minuten alten
   Quotes werden keine aktuellen Ausführungen behauptet.
-- Ein gültiges Signal allein erzwingt keinen Trade. Die KI kann HOLD wählen,
-  das Risikosystem kann ablehnen, und Liquidität kann eine Ausführung verhindern.
+- Ein gültiges Signal allein erzwingt keinen Trade. Das Risikosystem kann
+  ablehnen, und Liquidität kann eine Ausführung verhindern. Gespeicherte
+  Strategien werden ohne zusätzlichen kostenpflichtigen KI-Aufruf ausgeführt;
+  das KI-Budget begrenzt Forschung, nicht die technische Orderausführung.
 - Vor Reservierung und unmittelbar vor Ausführung wird die Strategie erneut
   geprüft. Fehlender Signalnachweis, Strategieänderung oder ungültig gewordenes
   Signal verhindert den Fill und gibt reserviertes Kapital frei.
@@ -46,9 +48,16 @@ zusammengefasst. Beobachtung ist keine erfundene neue Entscheidung.
 
 Alle 50 Trader werden während ihrer Sitzung alle zehn Sekunden lokal geprüft;
 ein zentraler inkrementeller 15-Minuten-Bar-Abruf läuft höchstens einmal pro Minute.
-KI-Analysen für den Handel werden nur bei gültigen Strategiesignalen eingereiht.
-Research und Tagesberichte dürfen weiterhin zeitgesteuert laufen, ohne damit
-Orders auszulösen. Alle Ausführungen bleiben Paper-only.
+Reguläre Sitzungen aus dem Alpaca-Kalender begrenzen die Intraday-Signalreihe.
+Lücken zwischen einzelnen Vor-/Nachbörsenbars sind keine Lücken der regulären
+Sitzung; fehlende Bars innerhalb der regulären Reihe sperren weiterhin.
+Ein gültiges Signal wird unmittelbar mit konservativer Größe und den Stop-%
+der gespeicherten Strategie an das interne Ledger übergeben. Take Profit liegt
+zwei Stop-Abstände über dem Einstieg. Kein Nachkaufen bestehender Positionen.
+Kapital, Konzentration, Exposure, Verluste und Stop-Risiko werden auch beim Fill
+erneut geprüft. Derselbe Bar erzeugt keine mehrfachen Einstiege.
+Research und Tagesberichte bleiben budgetiert. Alle Ausführungen sind interne
+Paper-Simulationen; sie werden nicht als Alpaca-Brokerorders ausgegeben.
 
 ## Prüfungen
 

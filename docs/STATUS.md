@@ -54,7 +54,7 @@ lokal erfolgreich; Ledger-Abgleich erfolgreich, Rollenverteilung weiterhin 50/25
 | Funktion | Was fehlt |
 |---|---|
 | Echte Broker-Paper-Testorder/-Bestätigung | Marktöffnung, frische Quote und ausdrückliche Testfreigabe; es wurde noch keine Brokerorder gesendet |
-| Autonomer Paper-Handel | CEO hat Grenzen und Handel am 20.10.2026 bestätigt; freigegeben, Ausführung bleibt signal-/daten-/budgetabhängig |
+| Autonomer Paper-Handel | Freigegeben und mit echten Signal-/Quote-Daten intern ausgeführt; neue Einstiege bleiben signal-, daten- und risikoabhängig. KI-Budget sperrt die Strategieausführung nicht mehr. |
 | SEC Companyfacts | Echte Kontaktangabe für SEC_USER_AGENT und erfolgreicher Abruf |
 | Belastbare Rankings/Beförderungsevidenz | Tatsächliche ausreichende Handels-/Equity-/OOS-Stichproben |
 
@@ -64,8 +64,9 @@ werden nicht als tatsächlich gehandelte Fondsgewinne ausgewiesen.
 
 ## Bewusste Einschränkungen / weitere Arbeit
 
-- Kein öffentliches Hosting, LAN- oder geschützter Fernzugriff und kein externer
-  Offline-Snapshot-Host eingerichtet. Lokaler Browser-Cache ist nur eine Ansicht
+- Öffentliches Vercel-Frontend vorhanden; API, Ledger und Worker weiterhin lokal.
+  Kein LAN-/geschützter Fernzugriff und kein externer Offline-Snapshot-Host
+  eingerichtet. Lokaler Browser-Cache ist nur eine Ansicht
   des letzten geladenen Zustands, kein erreichbarer Server bei ausgeschaltetem PC.
 - Keine lizenzierte Echtzeit-Social-/Truth-Social-Quelle und kein vollständiger
   Wirtschaftskalender. Kein garantiertes Nachrichten-Latenzziel.
@@ -101,3 +102,21 @@ Neue KI-Aufgaben bleiben deshalb heute gesperrt. Unklare frühere Anfragen zähl
 weiter konservativ; es wurden keine unbekannten Kosten gelöscht. Überwachung,
 deterministische Signal-/HOLD-Prüfung und Sicherheitskontrollen laufen weiter.
 Es gibt keine Bestätigung, die den Paper-only-Modus aufheben könnte.
+
+## Orderausführung und Login — 20.10.2026, 17 Uhr Berlin
+
+- Fehler korrigiert: Der Signalmonitor wartete bisher auf eine weitere KI-Analyse,
+  deren Tagesbudget ausgeschöpft war. Die gespeicherte Strategie führt jetzt
+  unabhängig von Modellverfügbarkeit und KI-Budget zum risikogeprüften Paper-Auftrag.
+- Reguläre Intraday-Bars werden mit dem echten Sitzungskalender abgegrenzt.
+  Sparse Vor-/Nachbörsendaten erzeugen keine falsche reguläre Datenlücke.
+  Tatsächliche Lücken und ungeeignete Feeds sperren unverändert.
+- Laufende Engine hat am 20.10.2026 ab 17:01 Berlin interne Paper-Fills für
+  NVDA (Fund-Agent 85), SPY (Demo-Agent 61) und AMZN (Fund-Agent 76) gespeichert.
+  Signalnachweis und Ledger-Abgleich geprüft. Keine Alpaca-Brokerfills behauptet.
+- Trading Floor zeigt nun Signal-/HOLD-Gründe, Ausführungsablehnungen und Fillzahl.
+- Lokaler Passwort-Login, sämtliche Datenendpunkte und authentifizierter WebSocket
+  funktionieren im Smoke-Test. Die Vercel-Website hat keine angeschlossene API;
+  statt eines kaputten Passwortformulars führt sie zur lokalen geschützten Konsole.
+- Für geräteübergreifenden Login fehlt weiterhin ein geschützter Backend-Host.
+  Deployment-Details: DEPLOYMENT.md. Zugangsdaten bleiben ausschließlich lokal.

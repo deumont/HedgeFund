@@ -6,7 +6,7 @@ from backend.config import units
 from backend.db import dumps
 from datetime import timedelta
 
-AT=datetime(2026,10,20,14,0,tzinfo=timezone.utc)
+AT=datetime(2026,10,20,15,30,tzinfo=timezone.utc)
 
 
 @pytest.fixture

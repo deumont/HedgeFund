@@ -6,7 +6,7 @@ import hashlib
 import json
 from .db import uid,dumps,event
 from .config import now
-from .calendar import phase
+from .calendar import phase,NEW_YORK
 from .backtest import validate_spec,signal
 
 MIN_TIMEFRAME=15
@@ -88,13 +88,19 @@ def evaluate_tx(db,c,agent_id,symbol,side='buy',at=None,expected_strategy=None):
         if 'IEX' in source.upper() and (spec.get('requires_full_market') or agent['specialty']=='Mikrostruktur'):
             raise ValueError('Datensatz selbst ist IEX; Gesamtmarktstrategie gesperrt')
         rows=[dict(x) for x in c.execute('SELECT * FROM bars WHERE symbol=? AND timeframe=? AND source=? AND adjustment=? ORDER BY time DESC LIMIT ?',
-                                       (symbol,timeframe,source,dataset['adjustment'],max(spec['lookback']+5, spec['holding_bars']+5))).fetchall()]
+                                       (symbol,timeframe,source,dataset['adjustment'],max(spec['lookback']+5, spec['holding_bars']+5)*4)).fetchall()]
         closed=[]
         duration=timedelta(minutes=tf)
         for row in reversed(rows):
             start=datetime.fromisoformat(row['time'])
             if start.tzinfo is None or start>at:
                 raise ValueError('Zukünftiger/zeitzonenloser Bar; Datenqualität ungeeignet')
+            if tf<1440:
+                session=c.execute('SELECT opens_at,closes_at FROM sessions WHERE date=?',(start.astimezone(NEW_YORK).date().isoformat(),)).fetchone()
+                # These traders operate during regular sessions. Sparse extended-hours
+                # bars must not be interpreted as holes in the regular-session series.
+                if not session or start<datetime.fromisoformat(session['opens_at']) or start+duration>datetime.fromisoformat(session['closes_at']):
+                    continue
             if start+duration+timedelta(minutes=delay)>at:
                 continue  # never read forming or not-yet-available delayed candles
             vals=[Decimal(row[k]) for k in ('open','high','low','close')]
@@ -116,6 +122,7 @@ def evaluate_tx(db,c,agent_id,symbol,side='buy',at=None,expected_strategy=None):
             raise ValueError('Verzögerte Strategie-Bars zusätzlich veraltet')
         if side=='buy' and datetime.fromisoformat(strategy['created_at'])>last_end:
             raise ValueError('Neue Strategie erst mit nachfolgendem abgeschlossenen Bar handeln; keine rückwirkend erzwungenen Signale')
+        closed=closed[-max(spec['lookback']+5,spec['holding_bars']+5):]
         closes=[float(x['close']) for x in closed]
         entry=signal(closes,spec)
         observations.update(bars=closed,last_bar_end=last_end.isoformat(),

@@ -290,7 +290,7 @@ class Ledger:
             if o['side']=='buy':
                 a = c.execute("SELECT paused FROM agents WHERE id=?",(o['agent_id'],)).fetchone()
                 stream=c.execute("SELECT status FROM integrations WHERE name='market_stream'").fetchone()
-                if a['paused'] or meta(c,'kill_switch') or not meta(c,'trading_enabled') or meta(c,'risk_halt_'+o['portfolio_id']) or not stream or stream['status']!='connected':
+                if a['paused'] or meta(c,'kill_switch') or not meta(c,'risk_confirmed') or not meta(c,'trading_enabled') or meta(c,'risk_halt_'+o['portfolio_id']) or not stream or stream['status']!='connected':
                     return None
             limits = meta(c,'risk_limits')
             q = valid_quote(c,o['symbol'],limits,at)
@@ -316,6 +316,44 @@ class Ledger:
                 if gross+fee > o['reserved_u'] or gross+fee > p['cash_u']:
                     # Price gapped through reservation: never mint money or spend other orders' cash.
                     return None
+                # Recheck changing portfolio budgets at the actual execution price.
+                s=snapshot(c,o['portfolio_id'],at)
+                if not s['valuation_complete']:
+                    raise RiskError('Unvollständige Portfolio-Bewertung vor Ausführung')
+                equity=units(s['equity_eur'])
+                caps=meta(c,'fund_cash_limits',{}) if o['portfolio_id']=='fund' else {}
+                day_start=datetime.combine(at.astimezone(BERLIN).date(),datetime.min.time(),BERLIN).astimezone(timezone.utc).isoformat()
+                opening=c.execute('SELECT equity_u FROM equity WHERE portfolio_id=? AND created_at>=? AND valuation_complete=1 ORDER BY created_at LIMIT 1',(o['portfolio_id'],day_start)).fetchone()
+                initial=opening[0] if opening else p['initial_u']
+                if initial-equity>=capped_limit(caps,'max_daily_loss_eur',initial*limits['max_daily_loss_pct']) or s['drawdown_pct']/100>=limits['max_drawdown_pct'] or units(s['drawdown_eur'])>=caps.get('max_drawdown_eur',float('inf'))*1_000_000:
+                    raise RiskError('Verlust-/Drawdown-Limit vor Ausführung erreicht')
+                pending=c.execute("SELECT * FROM orders WHERE portfolio_id=? AND id!=? AND status IN ('pending','triggered')",(o['portfolio_id'],oid)).fetchall()
+                own=sum(x['cost_u'] for x in s['positions'] if x['agent_id']==o['agent_id'])+sum(x['reserved_u'] for x in pending if x['agent_id']==o['agent_id'])
+                symbol_cost=sum(x['cost_u'] for x in s['positions'] if x['symbol']==o['symbol'])+sum(x['reserved_u'] for x in pending if x['symbol']==o['symbol'])
+                exposure=equity-p['cash_u']+sum(x['reserved_u'] for x in pending)
+                cost=gross+fee
+                if own+cost>equity*limits['max_agent_pct'] or symbol_cost+cost>equity*limits['max_symbol_pct'] or exposure+cost>capped_limit(caps,'max_exposure_eur',equity*limits['max_exposure_pct']) or cost+(pos['cost_u'] if pos else 0)>capped_limit(caps,'max_position_eur',equity*limits['max_position_pct']):
+                    raise RiskError('Kapital-/Exposurelimit vor Ausführung überschritten')
+                if o['symbol'] in TECH:
+                    bucket=sum(x['cost_u'] for x in s['positions'] if x['symbol'] in TECH)+sum(x['reserved_u'] for x in pending if x['symbol'] in TECH)
+                    if bucket+cost>equity*limits['max_correlated_pct']:
+                        raise RiskError('Korrelationslimit vor Ausführung überschritten')
+                if not D(o['stop_usd'])<raw or o['take_usd'] and D(o['take_usd'])<=raw:
+                    raise RiskError('Schutzpreise durch Kursbewegung vor Ausführung ungeeignet')
+                risk=units(qty*(price-D(o['stop_usd']))/fx)+units(qty*price/fx*D('.001'))
+                total_risk=own_risk=0
+                for item in s['positions']:
+                    r=units(D(item['qty'])*max(D(0),D(item['avg_usd'])-D(item['stop_usd']))/fx)
+                    total_risk+=r
+                    if item['agent_id']==o['agent_id']:
+                        own_risk+=r
+                for item in pending:
+                    if item['side']=='buy':
+                        total_risk+=item['reserved_u']
+                        if item['agent_id']==o['agent_id']:
+                            own_risk+=item['reserved_u']
+                if risk>capped_limit(caps,'max_loss_per_position_eur',equity*limits['max_loss_per_position_pct']) or own_risk+risk>equity*limits['max_agent_risk_pct'] or total_risk+risk>equity*limits['max_total_risk_pct']:
+                    raise RiskError('Stop-Risikolimit vor Ausführung überschritten')
                 delta = -gross-fee
                 newqty = qty+(D(pos['qty']) if pos else 0)
                 cost = gross+fee+(pos['cost_u'] if pos else 0)

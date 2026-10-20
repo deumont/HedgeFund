@@ -159,6 +159,16 @@ def test_intraday_missing_candle_is_unsuitable_data(db):
         submit(db)
 
 
+def test_extended_hours_gaps_do_not_poison_regular_session_signals(db):
+    with db.tx() as c:
+        for hour in (9,11):
+            c.execute('INSERT INTO bars VALUES(?,?,?,?,?,?,?,?,?,?)',('AAPL',AT.replace(hour=hour,minute=0).isoformat(),
+                '15Min','90','92','89','91',10000,'Alpaca IEX','raw'))
+    decision=SignalEngine(db).evaluate(76,'AAPL',at=AT)
+    assert decision.valid
+    assert all(datetime.fromisoformat(row['time']).hour>=13 for row in decision.observations['bars'])
+
+
 @pytest.mark.asyncio
 async def test_clean_worker_stop_can_restart_with_zero_pid_sentinel(db,tmp_path):
     db.set('worker_identity',{'pid':0,'created':0})
