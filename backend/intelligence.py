@@ -20,6 +20,11 @@ class BudgetError(ValueError):
     pass
 
 
+# Official Standard pricing, verified 2026-10-20. No premium service tier requested.
+PRICE_CARDS={'gpt-5.4-mini':(Decimal('.75'),Decimal('4.5')),
+             'gpt-6.1-sol':(Decimal('2'),Decimal('10'))}
+
+
 def response_inputs(response):
     """Convert SDK output objects into the narrower accepted Responses input contract."""
     items=[]
@@ -92,8 +97,9 @@ class AI:
         if not self.cfg.openai_api_key:
             raise BudgetError('OPENAI_API_KEY fehlt; keine KI-Ausgabe erzeugt')
         # Only a verified price card can authorize billable work.
-        if model!='gpt-5.4-mini' or self.cfg.openai_input_usd_per_million!=Decimal('0.75') or self.cfg.openai_output_usd_per_million!=Decimal('4.5'):
+        if model not in PRICE_CARDS:
             raise BudgetError('Modell/Preiskarte nicht verifiziert; Preisfreigabe in Code erforderlich')
+        input_price,output_price=PRICE_CARDS[model]
         byte_bound=len(dumps(inputs).encode('utf-8'))+4096
         if byte_bound>140000:
             raise BudgetError('KI-Kontext überschreitet lokale Grenze')
@@ -101,7 +107,7 @@ class AI:
         with self.db.tx() as c:
             fx=latest_fx(c,at)
             # Bytes bound token count; no cache discount, 30% pricing/FX safety margin.
-            upper=units((Decimal(byte_bound)*self.cfg.openai_input_usd_per_million+Decimal(output_limit)*self.cfg.openai_output_usd_per_million)/1_000_000/fx*Decimal('1.30'))
+            upper=units((Decimal(byte_bound)*input_price+Decimal(output_limit)*output_price)/1_000_000/fx*Decimal('1.30'))
             local=at.astimezone(BERLIN)
             month=local.replace(day=1,hour=0,minute=0,second=0,microsecond=0).astimezone(timezone.utc).isoformat()
             total=c.execute("SELECT COALESCE(SUM(CASE WHEN status='settled' THEN cost_u ELSE reserved_u END),0) FROM usage WHERE created_at>=?",(month,)).fetchone()[0]
@@ -112,10 +118,10 @@ class AI:
         return rid,fx
 
     async def call(self,kind,messages,agent_id=None,tools=None,schema=None):
-        model=self.cfg.openai_manager_model if kind=='manager' else self.cfg.openai_model
-        limit=1100 if kind=='manager' else 2400
+        model=self.cfg.openai_manager_model if kind in ('manager','manager_review') else self.cfg.openai_model
+        limit=1100 if kind in ('manager','agent_report') else 1800 if kind=='manager_review' else 2400
         params=dict(model=model,instructions=SYSTEM,input=messages,max_output_tokens=limit,
-                    reasoning={'effort':'low'},store=False,include=['reasoning.encrypted_content'])
+                    reasoning={'effort':'low'},service_tier='default',store=False,include=['reasoning.encrypted_content'])
         if tools:
             params['tools']=tools
         if schema:
@@ -128,7 +134,8 @@ class AI:
             usage=response.usage
             if usage is None:
                 raise RuntimeError('Provider meldet keine Token-Nutzung')
-            cost=units((Decimal(usage.input_tokens)*self.cfg.openai_input_usd_per_million+Decimal(usage.output_tokens)*self.cfg.openai_output_usd_per_million)/1_000_000/fx)
+            input_price,output_price=PRICE_CARDS[model]
+            cost=units((Decimal(usage.input_tokens)*input_price+Decimal(usage.output_tokens)*output_price)/1_000_000/fx)
             with self.db.tx() as c:
                 bound=c.execute('SELECT reserved_u FROM usage WHERE id=?',(rid,)).fetchone()[0]
                 c.execute("UPDATE usage SET input_tokens=?,output_tokens=?,cost_u=?,status='settled' WHERE id=?",(usage.input_tokens,usage.output_tokens,cost,rid))
@@ -190,6 +197,9 @@ class AI:
                 spec=validate_spec(result.proposed_strategy.model_dump())
                 version=strategy['version']+1
                 c.execute('INSERT INTO strategies VALUES(?,?,?,?,?,?,?)',(uid(),agent_id,version,dumps(spec),result.hypothesis,'candidate',now()))
+        from .universe import eligible,select_stock
+        if eligible(self.db,result.symbol):
+            select_stock(self.db,self.cfg,agent_id,result.symbol)
         return aid,result
 
 
@@ -207,6 +217,8 @@ def agent_context(db,agent_id):
                 trading_enabled=db.get('trading_enabled'),
                 quotes=db.all('SELECT * FROM quotes'),
                 news=db.all('SELECT * FROM news ORDER BY published_at DESC LIMIT 30'),
+                stock_universe={'tradable_us_stocks':db.one("SELECT COUNT(*) n FROM assets WHERE tradable=1 AND asset_class='us_equity'")['n'],
+                                'access':'read_fund_data stocks: vollständiger paginierter Katalog. Jede bestätigte Aktie kann ausgewählt werden; fehlende Kursdaten werden geladen, bis dahin keine Order.'},
                 news_access={'scope':'Alle verfügbaren Alpaca-News; gleicher Zugriff für alle 100 Agenten',
                              'stream':db.one("SELECT name,status,detail FROM integrations WHERE name='news_stream'"),
                              'more':'read_data news: weitere Meldungen paginiert abrufen'},
@@ -355,7 +367,7 @@ def apply_rotations(db,at=None):
 
 TOOLS=[{'type':'function','name':'read_fund_data','description':'Liest echte gespeicherte Fonds-/Agentendaten. Zeitlich sortierte, paginierte Daten. Keine SQL-Eingaben.',
         'strict':True,'parameters':{'type':'object','properties':{
-            'dataset':{'type':'string','enum':['fund','agents','agent_detail','fills','orders','news','events','analyses','backtests','strategies','decisions','evaluations','risk','usage','documents','quotes','bars','memories','agent_equity','signal_decisions']},
+            'dataset':{'type':'string','enum':['fund','agents','agent_detail','stocks','fills','orders','news','events','analyses','backtests','strategies','decisions','evaluations','risk','usage','documents','quotes','bars','memories','agent_equity','signal_decisions']},
             'agent_id':{'type':['integer','null']},'offset':{'type':'integer'}},
             'required':['dataset','agent_id','offset'],'additionalProperties':False}},
        {'type':'function','name':'propose_admin_action','description':'Nur vormerken, niemals ausführen: Agent pausieren/fortsetzen oder Tausch für nächsten Handelstag. CEO muss separat bestätigen.',
@@ -367,6 +379,9 @@ TOOLS=[{'type':'function','name':'read_fund_data','description':'Liest echte ges
 
 def read_data(db,dataset,agent_id=None,offset=0):
     offset=max(0,min(offset,100000))
+    if dataset=='stocks':
+        return {'rows':db.all("SELECT * FROM assets WHERE tradable=1 AND asset_class='us_equity' ORDER BY symbol LIMIT 100 OFFSET ?",(offset,)),
+                'total':db.one("SELECT COUNT(*) n FROM assets WHERE tradable=1 AND asset_class='us_equity'")['n'],'offset':offset,'next_offset':offset+100}
     if dataset=='fund':
         with db.tx() as c:
             return snapshot(c,'fund')

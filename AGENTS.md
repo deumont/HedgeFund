@@ -50,3 +50,11 @@ Neuester CEO-Auftrag: Jeder Trader darf höchstens 25 % seines Portfolios nutzen
 Positionen und offenen Kaufreservierungen des Agenten zusammen zählen. Diese
 Obergrenze gilt auch im Strategie-Modus. Überhöhte bestehende Positionen werden
 mit geeigneten Daten kontrolliert reduziert; keine erfundenen oder veralteten Fills.
+
+Weitere CEO-Aufträge: Einzelagenten verwenden gpt-6.1-sol; Managerbewertungen
+rollieren 0–10, sind als vorläufige Beurteilung statt Gewinnnachweis bezeichnet.
+Alle bestätigten handelbaren Alpaca-US-Aktien sind auswählbar; Echtzeitabdeckung
+nicht behaupten. Website ohne manuelle Trades/Uploads, Manager Office und Research
+Lab. Bestehende Architektur 50/25/25 erhalten. Visuell wieder näher am ursprünglichen
+ATLAS-Dashboard, mit weniger Verwaltungsbedienung. Rechts im Trading Floor genau
+25 Fonds-Trader; Profile zeigen Tagesaktionen und eigene belegte Tagesberichte.

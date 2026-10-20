@@ -99,6 +99,11 @@ Loopback. Bei ausgeschaltetem PC sind gespeicherte Cloud-Snapshots erreichbar,
 neue Trades benötigen weiterhin die lokale Engine. Einrichtung und Grenzen:
 [Private Cloud-Konsole](docs/CLOUD.md).
 
+Die aktuelle [Agentenkonsole](docs/AGENT_CONSOLE.md) verwendet GPT 6.1 Sol für
+Einzelagenten, echte Managerbewertungen von 0–10 und gespeicherte Eigenberichte.
+Der Trading Floor zeigt rechts die 25 Fonds-Trader. Keine manuellen Trades oder
+Uploads auf der Website; 50/25/25, Paper-only und 25-%-Agentengrenze bleiben erhalten.
+
 Im freigegebenen Paper-Experimentiermodus wählen Strategien ihre Positionsanteile
 selbst (`position_pct`, gleicher Parameter im Backtest). Keine festen Eurobudgets;
 die neu bestätigte Obergrenze beträgt jedoch 25 % Kapital je Agent über alle
@@ -131,7 +136,8 @@ Private Zugangsdaten und Betriebsdaten sind von der Veröffentlichung ausgeschlo
 ## Verwendete offizielle Referenzen
 
 - [OpenAI Responses API](https://developers.openai.com/api/reference/python/resources/responses)
-- [Modell und Preiskarte](https://developers.openai.com/api/docs/models/gpt-5.4-mini)
+- [Agentenmodell und Preiskarte](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
+- [Managermodell und Preiskarte](https://developers.openai.com/api/docs/models/gpt-5.4-mini)
 - [Alpaca Paper Trading](https://docs.alpaca.markets/us/docs/paper-trading)
 - [Alpaca Marktstream](https://docs.alpaca.markets/us/docs/streaming-market-data)
 - [Alpaca SDK und Kalender](https://alpaca.markets/sdks/python/api_reference/trading/calendar.html)

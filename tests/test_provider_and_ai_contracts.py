@@ -35,7 +35,7 @@ async def test_real_sdk_response_contract_persists_usage_memory_strategy(db,monk
         seen.append(json.loads(request.content))
         assert request.url.host=='api.openai.com'
         return httpx.Response(200,json={
-            'id':'resp_fixture','object':'response','created_at':1770000000,'model':'gpt-5.4-mini','status':'completed',
+            'id':'resp_fixture','object':'response','created_at':1770000000,'model':'gpt-6.1-sol','status':'completed',
             'error':None,'incomplete_details':None,'instructions':None,'metadata':{},'parallel_tool_calls':True,
             'temperature':1.0,'tool_choice':'auto','tools':[],'top_p':1.0,'background':False,
             'output':[{'id':'msg_fixture','type':'message','status':'completed','role':'assistant','content':[
@@ -55,6 +55,8 @@ async def test_real_sdk_response_contract_persists_usage_memory_strategy(db,monk
     assert seen[0]['store'] is False
     assert seen[0]['include']==['reasoning.encrypted_content']
     assert seen[0]['text']['format']['strict'] is True
+    assert seen[0]['model']=='gpt-6.1-sol'
+    assert seen[0]['service_tier']=='default'
 
 
 def test_alpaca_sdk_calendar_and_quote_storage(db,monkeypatch):

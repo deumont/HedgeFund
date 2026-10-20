@@ -9,8 +9,8 @@ from urllib.parse import urlparse
 import httpx
 import requests
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import GetCalendarRequest, MarketOrderRequest, LimitOrderRequest, StopOrderRequest,StopLossRequest,TakeProfitRequest
-from alpaca.trading.enums import OrderSide, TimeInForce,OrderClass
+from alpaca.trading.requests import GetCalendarRequest, MarketOrderRequest, LimitOrderRequest, StopOrderRequest,StopLossRequest,TakeProfitRequest,GetAssetsRequest
+from alpaca.trading.enums import OrderSide, TimeInForce,OrderClass,AssetClass,AssetStatus
 from alpaca.data.historical import StockHistoricalDataClient, NewsClient
 from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest, NewsRequest
 from alpaca.data.enums import DataFeed, Adjustment
@@ -30,11 +30,11 @@ class PaperOnlyAdapter(requests.adapters.HTTPAdapter):
         return super().send(request, **kwargs)
 
 
-def paper_client(cfg):
+def paper_client(cfg,raw_data=False):
     if not cfg.has_alpaca:
         raise ValueError("Alpaca-Paper-Zugangsdaten fehlen")
     client = TradingClient(cfg.alpaca_paper_api_key, cfg.alpaca_paper_secret_key,
-                           paper=True, url_override=PAPER_URL)
+                           paper=True,raw_data=raw_data,url_override=PAPER_URL)
     client._session.trust_env = False
     client._retry=0
     guard = PaperOnlyAdapter(max_retries=0)
@@ -107,15 +107,20 @@ class Providers:
         self.db.integration('calendar','connected',f'{start} bis {end}, inklusive tatsächlicher verkürzter Sitzungen')
 
     def assets(self):
-        client = paper_client(self.cfg)
-        for symbol in self.cfg.symbols:
-            item = client.get_asset(symbol)
-            with self.db.tx() as c:
-                c.execute("INSERT OR REPLACE INTO assets VALUES(?,?,?,?,?)",(symbol,int(item.tradable),item.asset_class.value,item.exchange.value,now()))
+        client = paper_client(self.cfg,raw_data=True)
+        items=client.get_all_assets(GetAssetsRequest(status=AssetStatus.ACTIVE,asset_class=AssetClass.US_EQUITY))
+        with self.db.tx() as c:
+            c.execute("UPDATE assets SET tradable=0 WHERE asset_class='us_equity'")
+            for item in items:
+                if item.get('class')!='us_equity' or not item.get('symbol'):continue
+                c.execute("INSERT OR REPLACE INTO assets VALUES(?,?,?,?,?)",(item['symbol'],int(bool(item.get('tradable'))),item['class'],item.get('exchange',''),now()))
+        self.db.integration('stock_universe','connected',f'{sum(bool(x.get("tradable")) for x in items)} handelbare US-Aktien/ETFs im Alpaca-Katalog; Daten werden nach Bedarf geladen')
 
-    def latest_quotes(self):
+    def latest_quotes(self,symbols=None):
+        from .universe import active_symbols
+        symbols=symbols or active_symbols(self.db,self.cfg)
         client = data_client(StockHistoricalDataClient,self.cfg)
-        data = client.get_stock_latest_quote(StockLatestQuoteRequest(symbol_or_symbols=self.cfg.symbols,feed=DataFeed(self.cfg.alpaca_feed)))
+        data = client.get_stock_latest_quote(StockLatestQuoteRequest(symbol_or_symbols=symbols,feed=DataFeed(self.cfg.alpaca_feed)))
         for symbol, q in data.items():
             self.store_quote(symbol,str(q.bid_price),str(q.ask_price),q.bid_size,q.ask_size,q.timestamp.isoformat())
         self.db.integration('quotes','connected',f'{len(data)} tatsächliche Quotes; Feed {self.cfg.alpaca_feed}. Alter wird je Order geprüft.')
@@ -129,7 +134,8 @@ class Providers:
                       (symbol,bid,ask,int(bsize),int(asize),stamp,now(),'Alpaca '+self.cfg.alpaca_feed.upper()))
 
     def historical(self,symbol,days=365):
-        if symbol not in self.cfg.symbols or not 30<=days<=3650:
+        from .universe import eligible
+        if not eligible(self.db,symbol) or not 30<=days<=3650:
             raise ValueError("Symbol/Zeitraum nicht erlaubt")
         client = data_client(StockHistoricalDataClient,self.cfg)
         end = datetime.now(timezone.utc)-timedelta(days=1)
@@ -146,16 +152,18 @@ class Providers:
         self.db.event('historical',f'{symbol}: {count} historische Bars gespeichert')
         return {'symbol':symbol,'bars':count}
 
-    def intraday(self):
+    def intraday(self,symbols=None):
         """Central 15min historical poll; explicitly waits out the declared 15min delay."""
+        from .universe import active_symbols
+        symbols=symbols or active_symbols(self.db,self.cfg)
         client=data_client(StockHistoricalDataClient,self.cfg)
         end=datetime.now(timezone.utc)-timedelta(minutes=15)
         latest=self.db.all("SELECT symbol,MAX(time) stamp FROM bars WHERE timeframe='15Min' AND source=? AND adjustment='raw' GROUP BY symbol",('Alpaca '+self.cfg.alpaca_feed.upper(),))
         start=end-timedelta(days=8)
-        stamps=[datetime.fromisoformat(x['stamp']) for x in latest if x['symbol'] in self.cfg.symbols]
-        if len(stamps)==len(self.cfg.symbols):
+        stamps=[datetime.fromisoformat(x['stamp']) for x in latest if x['symbol'] in symbols]
+        if len(stamps)==len(symbols):
             start=max(start,min(stamps)-timedelta(minutes=45))
-        records=client.get_stock_bars(StockBarsRequest(symbol_or_symbols=self.cfg.symbols,
+        records=client.get_stock_bars(StockBarsRequest(symbol_or_symbols=symbols,
                     timeframe=TimeFrame(15,TimeFrameUnit.Minute),start=start,end=end,
                     adjustment=Adjustment.RAW,feed=DataFeed(self.cfg.alpaca_feed)))
         count=0
@@ -296,13 +304,21 @@ class Providers:
                     auth=json.loads(await ws.recv())
                     if any(x.get('T')=='error' for x in auth):
                         raise RuntimeError('Marktstream-Authentifizierung/Berechtigung fehlgeschlagen')
-                    await ws.send(dumps({'action':'subscribe','quotes':self.cfg.symbols}))
+                    from .universe import active_symbols
+                    subscribed_symbols=active_symbols(self.db,self.cfg)[:30]
+                    await ws.send(dumps({'action':'subscribe','quotes':subscribed_symbols}))
                     subscribed=json.loads(await ws.recv())
                     if any(x.get('T')=='error' for x in subscribed):
                         raise RuntimeError('Feed/Symbol-Limit: Subscription abgelehnt')
                     self.db.integration('market_stream','connected',f'{feed.upper()}: zentraler Quote-Stream. '+('Nur IEX, kein konsolidierter Gesamtmarkt.' if feed=='iex' else 'SIP-Berechtigung bestätigt.'))
                     delay=2
                     while not self.stopping.is_set():
+                        desired=active_symbols(self.db,self.cfg)[:30]
+                        if desired!=subscribed_symbols:
+                            removed=[s for s in subscribed_symbols if s not in desired]
+                            if removed:await ws.send(dumps({'action':'unsubscribe','quotes':removed}))
+                            await ws.send(dumps({'action':'subscribe','quotes':desired}))
+                            subscribed_symbols=desired
                         try:
                             data=await asyncio.wait_for(ws.recv(),timeout=25)
                         except asyncio.TimeoutError:

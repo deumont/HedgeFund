@@ -53,6 +53,9 @@ export async function cloudApi(rawPath:string,body?:any):Promise<any>{
  if(data.missing)return command(path,'GET')
  const payload=data.payload??old?.payload
  if(payload===undefined)throw new Error('Cloud-Snapshot fehlt')
+ if((/^agents\/\d+$/.test(path)||path==='trading-floor')&&data.heartbeat&&Date.now()-Date.parse(data.heartbeat)<90000&&Date.now()-Date.parse(data.captured_at)>15000){
+  return command(path,'GET')
+ }
  cache.set(path,{etag:data.etag,payload})
  if(path==='overview'){
   cloudCapturedAt=data.captured_at

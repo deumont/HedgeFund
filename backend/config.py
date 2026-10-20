@@ -12,10 +12,10 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     alpaca_paper_api_key: str = ""
     alpaca_paper_secret_key: str = ""
-    openai_model: str = "gpt-5.4-mini"
+    openai_model: str = "gpt-6.1-sol"
     openai_manager_model: str = "gpt-5.4-mini"
-    openai_input_usd_per_million: Decimal = Decimal("0.75")
-    openai_output_usd_per_million: Decimal = Decimal("4.5")
+    openai_input_usd_per_million: Decimal = Decimal("2")
+    openai_output_usd_per_million: Decimal = Decimal("10")
     monthly_budget_eur: Decimal = Decimal("30")
     alpaca_feed: str = "iex"
     watchlist: str = "SPY,QQQ,AAPL,MSFT,NVDA,AMZN,META,GOOGL,TSLA,AMD"

@@ -1,5 +1,29 @@
 # Tatsächlicher Stand — 20.10.2026
 
+## Aktueller Abschlussstand — 22 Uhr Berlin
+
+152 automatisierte Tests bestanden; Frontend-Produktionsbuild, authentifizierter
+HTTP-Smoke-Test und Live-WebSocket erfolgreich. Die folgenden älteren Abschnitte
+beschreiben Entwicklungsstände; bei Widersprüchen gilt dieser aktuelle Abschnitt.
+
+- Bestehende Architektur 50/25/25, Paper-only, mindestens 15 Minuten und maximal
+  25 % Kapital je Agent einschließlich offener Kaufreservierungen bleiben erhalten.
+- Ausgewogenes ATLAS-Dashboard mit Portfolio, Organisation und Nachrichten;
+  keine manuellen Trades/Uploads, kein Manager Office und kein Research Lab.
+- Rechts im Trading Floor genau 25 Fonds-Trader. Profile zeigen tatsächliche
+  Tagesaktionen, eigene gespeicherte Berichte und Managerbeurteilung 0–10.
+- Alle 25 Fondsberichte und alle 100 Agentenbewertungen tatsächlich erzeugt;
+  Einzelagenten verwenden GPT 6.1 Sol, der separate Manager GPT 5.4 Mini.
+  Der Managementdienst läuft unabhängig vom Sitzungsende des Handelsworkers.
+- 13.505 bestätigte handelbare Alpaca-US-Aktien/ETFs im Katalog. Kurse werden
+  rotierend und bei Auswahl geladen; keine gleichzeitige globale Echtzeitabdeckung.
+- 30 EUR monatliches KI-Budget, kein Tageslimit. Nach Tagesende keine neuen
+  Handelsausführungen erzwingen. Bewertungen sind vorläufig, kein Gewinnnachweis.
+- Private Supabase-Snapshots und Befehlswarteschlange eingerichtet. Das persönliche
+  CEO-Auth-Konto muss noch vom Nutzer angelegt und freigeschaltet werden.
+
+Details: [Agentenkonsole](AGENT_CONSOLE.md), [Cloud-Zugriff](CLOUD.md).
+
 **Das Gesamtprojekt ist noch nicht vollständig extern abgenommen.** Die lokale
 Anwendung ist implementiert. Fehlende Kontozugänge werden nicht durch Testdaten
 oder erfundene KI-Ausgaben ersetzt.

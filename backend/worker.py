@@ -51,7 +51,7 @@ class Worker:
                         raise RuntimeError('Ein Worker läuft bereits')
             put(c,'worker_identity',{'pid':os.getpid(),'created':psutil.Process().create_time()})
             # Provider side effects never auto-retry on process death. Internal writes are transactional.
-            c.execute("UPDATE jobs SET status=CASE WHEN kind='broker_submit' THEN 'uncertain' ELSE 'pending' END,updated_at=? WHERE status='running'",(now(),))
+            c.execute("UPDATE jobs SET status=CASE WHEN kind='broker_submit' THEN 'uncertain' ELSE 'pending' END,updated_at=? WHERE status='running' AND kind NOT IN ('agent_report','manager_review')",(now(),))
             put(c,'worker_stop_requested',False)
         self.ledger.reconcile()
         self.db.event('worker','Hintergrund-Engine gestartet; dauerhafter Zustand geladen')
@@ -128,7 +128,7 @@ class Worker:
 
     def claim(self):
         with self.db.tx() as c:
-            row=c.execute("SELECT * FROM jobs WHERE status='pending' AND available_at<=? ORDER BY priority,created_at LIMIT 1",(now(),)).fetchone()
+            row=c.execute("SELECT * FROM jobs WHERE status='pending' AND kind NOT IN ('agent_report','manager_review') AND available_at<=? ORDER BY priority,created_at LIMIT 1",(now(),)).fetchone()
             if row:
                 c.execute("UPDATE jobs SET status='running',attempts=attempts+1,updated_at=? WHERE id=?",(now(),row['id']))
                 return dict(row)|{'attempts':row['attempts']+1}
@@ -148,6 +148,10 @@ class Worker:
         apply_rotations(self.db,stamp)
         enqueue(self.db,'fx',priority=2,dedupe='fx-'+day)
         if self.cfg.has_alpaca:
+            if self.db.get('universe_scan_bucket')!=stamp.isoformat()[:14]+str(stamp.minute//5):
+                from .universe import rotate
+                rotate(self.db,self.cfg)
+                self.db.set('universe_scan_bucket',stamp.isoformat()[:14]+str(stamp.minute//5))
             enqueue(self.db,'calendar',priority=2,dedupe='calendar-'+day)
             enqueue(self.db,'assets',priority=3,dedupe='assets-'+day)
             enqueue(self.db,'news',priority=5,dedupe='news-'+stamp.isoformat()[:16])
@@ -176,7 +180,10 @@ class Worker:
         for agent in self.db.all("SELECT id FROM agents WHERE department!='research' AND paused=0"):
             aid=agent['id']
             positions=self.db.all('SELECT symbol FROM positions WHERE agent_id=?',(aid,))
-            symbols=[p['symbol'] for p in positions] or [self.cfg.symbols[(aid-1)%len(self.cfg.symbols)]] if self.cfg.symbols else []
+            from .universe import active_symbols
+            candidates=active_symbols(self.db,self.cfg)
+            preferred=self.db.get('agent-stock-'+str(aid))
+            symbols=[p['symbol'] for p in positions] or [preferred or candidates[(aid-1)%len(candidates)]] if candidates else []
             for symbol in symbols:
                 side='sell' if positions else 'buy'
                 decision=self.signals.evaluate(aid,symbol,side,at)
@@ -203,6 +210,9 @@ class Worker:
                     reason=decision.reason+'; gespeicherte Strategie, deterministische Risikogröße',at=at,**plan)
             order_id=order['id']
             fill=self.ledger.fill(order_id,at)
+            if fill and self.cfg.openai_api_key:
+                from .reporting import queue_report
+                queue_report(self.db,self.cfg,aid)
             final_action='FILLED' if fill or order['status']=='filled' else 'ORDER_PENDING'
             reason=decision.reason
         except RiskError as exc:
@@ -315,10 +325,20 @@ class Worker:
             return {'loaded':True}
         if kind=='historical':
             return await asyncio.to_thread(self.providers.historical,payload['symbol'],payload.get('days',365))
+        if kind=='prepare_stock':
+            await asyncio.to_thread(self.providers.intraday,[payload['symbol']])
+            await asyncio.to_thread(self.providers.latest_quotes,[payload['symbol']])
+            return {'symbol':payload['symbol'],'prepared':True}
         if kind=='edgar':
             return await self.providers.edgar(payload['cik'],payload['symbol'])
         if kind=='chat':
             return await manager_chat(self.db,self.cfg,payload['text'],payload.get('message_id'))
+        if kind=='agent_report':
+            from .reporting import write_report
+            return await write_report(self.db,self.cfg,job['agent_id'],payload.get('date'))
+        if kind=='manager_review':
+            from .reporting import review_agents
+            return await review_agents(self.db,self.cfg,payload['agent_ids'])
         if kind=='openai_test':
             response=await self.ai.call('connection_test',[{'role':'user','content':'Antworte nur mit OK als Verbindungstest.'}])
             return {'response_id':response.id,'text':response.output_text}
@@ -345,7 +365,8 @@ class Worker:
             # Test every new candidate; jobs fail visibly when data coverage is insufficient.
             strategy=self.db.one('SELECT * FROM strategies WHERE agent_id=? ORDER BY version DESC LIMIT 1',(job['agent_id'],))
             if strategy['status']=='candidate' and self.cfg.symbols:
-                symbol=result.symbol if result.symbol in self.cfg.symbols else self.cfg.symbols[job['agent_id']%len(self.cfg.symbols)]
+                from .universe import eligible
+                symbol=result.symbol if eligible(self.db,result.symbol) else self.cfg.symbols[job['agent_id']%len(self.cfg.symbols)]
                 enqueue(self.db,'backtest',{'strategy_id':strategy['id'],'symbol':symbol},job['agent_id'],65,dedupe='test-'+strategy['id']+'-'+symbol)
             return {'analysis_id':aid,'proposed_action':result.action,'final_action':final_action,'reason':final_reason,'order_id':order_id}
         if kind=='daily_review':

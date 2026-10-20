@@ -116,6 +116,15 @@ CREATE TABLE IF NOT EXISTS signal_decisions(
  reason TEXT NOT NULL,timeframe_minutes INTEGER NOT NULL,observations TEXT NOT NULL,created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS order_signals(
  order_id TEXT PRIMARY KEY REFERENCES orders(id),signal_id TEXT NOT NULL REFERENCES signal_decisions(id));
+CREATE TABLE IF NOT EXISTS agent_reports(
+ id TEXT PRIMARY KEY,agent_id INTEGER NOT NULL,report_date TEXT NOT NULL,
+ evidence_hash TEXT NOT NULL,content TEXT NOT NULL,evidence TEXT NOT NULL,
+ model TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(agent_id,report_date,evidence_hash));
+CREATE TABLE IF NOT EXISTS manager_reviews(
+ id TEXT PRIMARY KEY,agent_id INTEGER NOT NULL,score REAL NOT NULL CHECK(score BETWEEN 0 AND 10),
+ summary TEXT NOT NULL,evidence TEXT NOT NULL,model TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS ix_manager_reviews_agent ON manager_reviews(agent_id,created_at);
+CREATE INDEX IF NOT EXISTS ix_agent_reports_day ON agent_reports(agent_id,report_date,created_at);
 CREATE INDEX IF NOT EXISTS ix_events_agent ON events(agent_id,id);
 CREATE INDEX IF NOT EXISTS ix_jobs_status ON jobs(status,priority,available_at);
 CREATE INDEX IF NOT EXISTS ix_fills_portfolio ON fills(portfolio_id,created_at);

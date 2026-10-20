@@ -11,7 +11,7 @@ from .config import now
 from .db import uid,dumps
 from .providers import safe_error
 
-BASE_PATHS=['overview','agents','system','portfolios','portfolio/fund','chats','data/jobs',
+BASE_PATHS=['overview','agents','system','trading-floor','portfolios','portfolio/fund','chats','data/jobs',
             'data/news','data/strategies','data/orders_all','data/decisions','data/quotes','data/broker']
 DATASETS={'fund','agents','agent_detail','fills','orders','news','events','analyses','backtests','strategies',
           'decisions','evaluations','risk','usage','documents','quotes','bars','memories','agent_equity',
@@ -30,7 +30,7 @@ def allowed_path(method,path):
         return (clean in BASE_PATHS or bool(re.fullmatch(r'agents/(?:[1-9][0-9]?|100)|portfolio/(?:fund|demo-[0-9]{3})|jobs/[a-f0-9-]{36}',clean))
                 or clean.startswith('data/') and clean[5:] in DATASETS)
     return method=='POST' and not params and (clean in ('chat','task','action','evaluate','broker/submit') or
-           bool(re.fullmatch(r'(?:orders|broker)/[a-f0-9-]{36}/cancel|jobs/[a-f0-9-]{36}/retry|decisions/[a-f0-9-]{36}/confirm',clean)))
+           bool(re.fullmatch(r'agents/(?:[1-9][0-9]?|100)/report|(?:orders|broker)/[a-f0-9-]{36}/cancel|jobs/[a-f0-9-]{36}/retry|decisions/[a-f0-9-]{36}/confirm',clean)))
 
 
 def normalize_path(path):
@@ -117,7 +117,7 @@ class CloudBridge:
             r=await local.get(path);r.raise_for_status();payload=r.json()
         # Show recent complete records, never cropped or invented record contents.
         if path.startswith('agents/') and isinstance(payload,dict):
-            payload={k:v[:10] if isinstance(v,list) and k not in ('positions','strategies') else v for k,v in payload.items()}
+            payload={k:v for k,v in payload.items() if k in ('profile','stats','runtime','day','manager_review')}
         encoded=dumps(payload).encode()
         if len(encoded)>900000:
             raise ValueError('Cloud-Datensatz überschreitet die kostenlose Synchronisationsgrenze')

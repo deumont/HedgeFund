@@ -29,6 +29,7 @@ def agent_states(db,ids=None):
             if a['paused']:status='paused'; label='Pausiert'; reason='Neue Einstiege vom CEO pausiert'
             elif own:status='position';label='Position offen';reason=f'{len(own)} Position(en); Schutzkontrolle aktiv' if online else 'Position offen; Engine derzeit offline'
             elif pending:status='pending';label='Order offen';reason=f'{pending} Order(s) in Prüfung'
+            elif not online and clock['phase'] in ('stopped','sleeping'):status='session';label='Tagesende' if clock['phase']=='stopped' else 'Ruhezeit';reason=clock['reason']
             elif not online:status='offline';label='Engine offline';reason='Keine aktuelle Worker-Bestätigung'
             elif running:status='working';label='Analyse läuft';reason=running['kind']
             elif a['department']=='research':status='research';label='Research bereit';reason='Forschung; keine direkten Tagesorders'

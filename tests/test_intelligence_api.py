@@ -121,14 +121,14 @@ def test_api_dashboard_metrics_and_sections(client):
     assert len(client.get('/api/portfolios').json())==26
 
 
-def test_import_actual_csv_and_atomic_rollback(client,db):
+def test_console_blocks_uploads_and_manual_broker_orders(client,db):
     client.post('/api/login',json={'password':'only-test-password'})
     good='time,open,high,low,close,volume\n2025-01-01T00:00:00+00:00,100,102,99,101,1000\n'
     request={'symbol':'SPY','csv_text':good,'source':'Licensed unit fixture','licensed':True,'adjustment':'raw'}
-    assert client.post('/api/import/bars',json=request).json()['imported']==1
-    bad=good+'2025-01-02T00:00:00+00:00,100,90,99,101,1000\n'
-    assert client.post('/api/import/bars',json=request|{'csv_text':bad}).status_code==400
-    assert db.one("SELECT COUNT(*) n FROM bars WHERE source LIKE 'Import:%'")['n']==1
+    assert client.post('/api/import/bars',json=request).status_code==403
+    assert client.post('/api/broker/submit',json={'symbol':'SPY','side':'buy','order_type':'market','confirmed':True}).status_code==403
+    assert db.one("SELECT COUNT(*) n FROM bars WHERE source LIKE 'Import:%'")['n']==0
+    assert not db.all('SELECT * FROM broker_orders')
 
 
 @pytest.mark.asyncio

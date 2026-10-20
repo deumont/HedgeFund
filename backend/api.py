@@ -76,10 +76,12 @@ def create_app(cfg=None,db=None):
     async def lifespan(app):
         from .cloud import CloudBridge
         from .providers import Providers
+        from .management import ManagementService
         stop=asyncio.Event()
         cloud=asyncio.create_task(CloudBridge(db,cfg).run(stop))
         provider=Providers(db,cfg)
         news=asyncio.create_task(provider.news_stream())
+        management=asyncio.create_task(ManagementService(db,cfg).run(stop))
         try:
             yield
         finally:
@@ -87,7 +89,8 @@ def create_app(cfg=None,db=None):
             provider.stopping.set()
             cloud.cancel()
             news.cancel()
-            await asyncio.gather(cloud,news,return_exceptions=True)
+            management.cancel()
+            await asyncio.gather(cloud,news,management,return_exceptions=True)
     app=FastAPI(title='ATLAS Paper Fund',docs_url=None,redoc_url=None,openapi_url=None,lifespan=lifespan)
     app.state.db=db
     app.add_middleware(TrustedHostMiddleware,allowed_hosts=['127.0.0.1','localhost','testserver'])
@@ -104,6 +107,8 @@ def create_app(cfg=None,db=None):
             if not authenticated(request.cookies.get('atlas_session')):
                 return JSONResponse({'detail':'Anmeldung erforderlich'},status_code=401)
         if request.method not in ('GET','HEAD','OPTIONS'):
+            if request.url.path.startswith(('/api/broker/','/api/import/')):
+                return JSONResponse({'detail':'Die Konsole erlaubt keine manuellen Trades oder Uploads'},status_code=403)
             origin=request.headers.get('origin')
             expected=f'{request.url.scheme}://{request.headers.get("host")}'
             if origin and origin!=expected:
@@ -216,6 +221,7 @@ def create_app(cfg=None,db=None):
                 evaluate(db,row['id'])
                 e=db.one('SELECT * FROM evaluations WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(row['id'],))
             row.update(evaluation=e,**states[row['id']])
+            row['manager_review']=db.one('SELECT * FROM manager_reviews WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(row['id'],))
         return rows
 
     @app.get('/api/agents/{aid}')
@@ -232,7 +238,24 @@ def create_app(cfg=None,db=None):
         for table in ['strategies','memories','analyses','backtests','fills','positions','evaluations','events','agent_equity','signal_decisions']:
             result[table]=db.all(f'SELECT * FROM {table} WHERE agent_id=? ORDER BY '+('id' if table=='events' else 'created_at')+' DESC LIMIT 100',(aid,))
         result['decisions']=[x for x in db.all('SELECT * FROM decisions ORDER BY created_at DESC') if aid in [json.loads(x['payload']).get(k) for k in ('agent_id','first','second')]][:50]
+        from .reporting import day_view
+        result['day']=day_view(db,aid)
+        result['manager_review']=result['day']['manager_review']
         return result
+
+    @app.post('/api/agents/{aid}/report')
+    def request_report(aid:int):
+        from .reporting import queue_report
+        if not 1<=aid<=100:raise HTTPException(404,'Agent fehlt')
+        return {'job_id':queue_report(db,cfg,aid)}
+
+    @app.get('/api/trading-floor')
+    def trading_floor():
+        from .reporting import window
+        day,start,end=window()
+        return {'date':day,'traders':[r for r in agents() if r['department']=='fund'],
+                'activity':db.all("SELECT f.*,o.reason FROM fills f JOIN orders o ON o.id=f.order_id WHERE f.portfolio_id='fund' AND f.created_at>=? AND f.created_at<? ORDER BY f.created_at DESC",(start,end)),
+                'as_of':now(),'paper_only':True}
 
     @app.get('/api/portfolios')
     def portfolios():
@@ -418,6 +441,8 @@ def create_app(cfg=None,db=None):
                 'risk':active_risk,'fund_cash_limits':active_caps,'paper_sizing_mode':db.get('paper_sizing_mode','capped'),'risk_confirmed':db.get('risk_confirmed'),
                 'configured':{'openai':bool(cfg.openai_api_key),'alpaca':cfg.has_alpaca,'sec':bool(cfg.sec_user_agent)},
                 'model':cfg.openai_model,'manager_model':cfg.openai_manager_model,'feed':cfg.alpaca_feed,
+                'stock_universe':{'tradable_count':db.one("SELECT COUNT(*) n FROM assets WHERE tradable=1 AND asset_class='us_equity'")['n'],
+                                  'data_scope':'Alpaca US-Aktien/ETFs; Daten nach Bedarf, IEX ist kein Gesamtmarktfeed'},
                 'market_data_policy':db.get('market_data_policy'),
                 'watchlist':cfg.symbols,'fx':db.one('SELECT * FROM fx ORDER BY date DESC LIMIT 1'),
                 'backups':len(list((ROOT/'backups').glob('fund-*.sqlite3'))),'paper_only':True,
