@@ -161,15 +161,54 @@ class AI:
             raise
 
     async def analyze(self,agent_id):
+        from .research import require_research,research_window,ResearchClosed,progress
+        if not self.cfg.openai_api_key:raise BudgetError('OPENAI_API_KEY fehlt; keine KI-Ausgabe erzeugt')
+        require_research()
         agent=self.db.one('SELECT * FROM agents WHERE id=?',(agent_id,))
-        if not agent or agent['paused']:
-            raise ValueError('Agent pausiert/fehlt')
+        if not agent or agent['paused']:raise ValueError('Agent pausiert/fehlt')
         strategy=self.db.one('SELECT * FROM strategies WHERE agent_id=? ORDER BY version DESC LIMIT 1',(agent_id,))
-        context=agent_context(self.db,agent_id)
+        draft=self.db.one('SELECT * FROM research_drafts WHERE agent_id=?',(agent_id,))
+        if draft:
+            if draft['strategy_id']!=strategy['id']:raise ValueError('Zwischengespeicherte Analyse basiert auf einer anderen Strategie; manuelle Prüfung erforderlich')
+            context=json.loads(draft['context']);saved=json.loads(draft['result'])
+            result=await self._generate_analysis(agent,strategy,context,agent_id,saved) if 'resume_messages' in saved else AgentDecision.model_validate(saved)
+        else:
+            progress(self.db,agent_id,'analysis','Liest Nachrichten, Berichte und Marktdaten')
+            context=agent_context(self.db,agent_id)
+            result=await self._generate_analysis(agent,strategy,context,agent_id)
+        aid=uid()
+        try:
+            with self.db.tx() as c:
+                require_research()
+                c.execute('INSERT INTO analyses VALUES(?,?,?,?,?,?)',(aid,agent_id,strategy['id'],dumps(context),result.model_dump_json(),now()))
+                c.execute('INSERT INTO memories VALUES(?,?,?,?,?,?)',(uid(),agent_id,'reflection',result.memory,dumps(result.evidence_ids),now()))
+                c.execute('UPDATE agents SET last_active=? WHERE id=?',(now(),agent_id))
+                event(c,'analysis',result.conclusion,agent_id,data={'analysis_id':aid,'action':result.action,'evidence':result.evidence_ids})
+                if result.proposed_strategy:
+                    spec=validate_spec(result.proposed_strategy.model_dump())
+                    c.execute('INSERT INTO strategies VALUES(?,?,?,?,?,?,?)',(uid(),agent_id,strategy['version']+1,dumps(spec),result.hypothesis,'candidate',now()))
+                c.execute('DELETE FROM research_drafts WHERE agent_id=?',(agent_id,))
+        except ResearchClosed:
+            with self.db.tx() as c:
+                c.execute('INSERT OR REPLACE INTO research_drafts VALUES(?,?,?,?,?)',(agent_id,strategy['id'],dumps(context),result.model_dump_json(),now()))
+            raise
+        from .universe import eligible,select_stock
+        if research_window()['open'] and eligible(self.db,result.symbol):select_stock(self.db,self.cfg,agent_id,result.symbol)
+        return aid,result
+
+    async def _generate_analysis(self,agent,strategy,context,agent_id,resume=None):
         messages=[{'role':'user','content':dumps({'profile':agent,'strategy':strategy,
              'context':context,'task':'Entwickle eine prüfbare Hypothese. Prüfe Datenlücken und Alternativen. Alle Agenten dürfen gemeinsame Daten über read_fund_data abfragen. Wähle hold/research bei fehlender Evidenz. Wähle position_pct anhand deiner Strategie und Backtests innerhalb der effektiven Kontext-Limits und des verfügbaren virtuellen Kapitals; beachte Stops. Vorschläge als sichere DSL; kein Python ausführen.'})}]
         receipts=[]
-        for _ in range(4):
+        if resume:messages=resume['resume_messages'];receipts=resume['receipts']
+        for turn in range(resume.get('turn',0) if resume else 0,4):
+            from .research import require_research,ResearchClosed,progress
+            try:require_research()
+            except ResearchClosed:
+                with self.db.tx() as c:c.execute('INSERT OR REPLACE INTO research_drafts VALUES(?,?,?,?,?)',
+                    (agent_id,strategy['id'],dumps(context),dumps({'resume_messages':messages,'receipts':receipts,'turn':turn}),now()))
+                raise
+            progress(self.db,agent_id,'analysis','Analysiert Hypothese und Strategie')
             response=await self.call('agent',messages,agent_id,tools=[TOOLS[0]],schema=AgentDecision.model_json_schema())
             calls=[x for x in response.output if x.type=='function_call']
             if not calls:
@@ -190,20 +229,8 @@ class AI:
         else:
             raise ValueError('Agenten-Toollimit erreicht; keine Handelsaktion')
         context['tool_receipts']=receipts
-        aid=uid()
-        with self.db.tx() as c:
-            c.execute('INSERT INTO analyses VALUES(?,?,?,?,?,?)',(aid,agent_id,strategy['id'],dumps(context),result.model_dump_json(),now()))
-            c.execute('INSERT INTO memories VALUES(?,?,?,?,?,?)',(uid(),agent_id,'reflection',result.memory,dumps(result.evidence_ids),now()))
-            c.execute('UPDATE agents SET last_active=? WHERE id=?',(now(),agent_id))
-            event(c,'analysis',result.conclusion,agent_id,data={'analysis_id':aid,'action':result.action,'evidence':result.evidence_ids})
-            if result.proposed_strategy:
-                spec=validate_spec(result.proposed_strategy.model_dump())
-                version=strategy['version']+1
-                c.execute('INSERT INTO strategies VALUES(?,?,?,?,?,?,?)',(uid(),agent_id,version,dumps(spec),result.hypothesis,'candidate',now()))
-        from .universe import eligible,select_stock
-        if eligible(self.db,result.symbol):
-            select_stock(self.db,self.cfg,agent_id,result.symbol)
-        return aid,result
+        return result
+
 
 
 def agent_context(db,agent_id):

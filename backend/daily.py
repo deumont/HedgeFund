@@ -150,9 +150,11 @@ def closeout_view(db):
 
 
 def research_view(db,offset=0):
+    from .research import research_window
     rows=db.all('SELECT b.*,s.status strategy_status FROM backtests b JOIN strategies s ON s.id=b.strategy_id ORDER BY b.created_at DESC,b.id LIMIT 10 OFFSET ?',(offset,))
     for r in rows:
         r['result']=json.loads(r['result']);r['parameters']=json.loads(r['parameters'])
     return {'rows':rows,'total':db.one('SELECT COUNT(*) n FROM backtests')['n'],'offset':offset,'limit':10,
+            'window':research_window(),
             'jobs':db.all("SELECT id,agent_id,kind,status,error,updated_at FROM jobs WHERE kind IN ('analysis','backtest','historical','prepare_stock') ORDER BY updated_at DESC LIMIT 20"),
             'strategies':db.all('SELECT status,COUNT(*) count FROM strategies GROUP BY status'),'as_of':now()}

@@ -40,7 +40,7 @@ def signal(closes,spec):
     return last>statistics.mean(closes[-n:])*(1+spec['threshold'])
 
 
-def simulate(bars,spec,initial=3000,cost_bps=12):
+def simulate(bars,spec,initial=3000,cost_bps=12,guard=None):
     validate_spec(spec)
     if len(bars)<spec['lookback']+10:
         raise ValueError('Zu wenig echte historische Bars')
@@ -59,6 +59,7 @@ def simulate(bars,spec,initial=3000,cost_bps=12):
     drawdown=0.0
     dates=[]
     for bar in bars:
+        if guard:guard()
         if dates and bar['time']<=dates[-1]:
             raise ValueError('Bars nicht streng chronologisch/eindeutig')
         dates.append(bar['time'])
@@ -111,6 +112,9 @@ def simulate(bars,spec,initial=3000,cost_bps=12):
 
 
 def run_backtest(db,agent_id,strategy_id,symbol):
+    from .research import require_research,progress
+    require_research()
+    progress(db,agent_id,'backtest','Prüft historische Daten und Strategieparameter')
     strategy=db.one('SELECT * FROM strategies WHERE id=? AND agent_id=?',(strategy_id,agent_id))
     if not strategy:
         raise ValueError('Strategie fehlt')
@@ -125,15 +129,18 @@ def run_backtest(db,agent_id,strategy_id,symbol):
     split=int(len(bars)*0.7)
     if split<=spec['lookback']+10 or len(bars)-split<=spec['lookback']+10:
         raise ValueError('Zu wenig Daten für getrennte In-Sample-/Out-of-Sample-Tests')
-    result={'full':simulate(bars,spec),'in_sample':simulate(bars[:split],spec),
-            'out_of_sample':simulate(bars[split:],spec),'split_date':bars[split]['time'],
-            'walk_forward':[], 'dataset':dataset}
+    result={'split_date':bars[split]['time'],'walk_forward':[], 'dataset':dataset}
+    for key,label,data in [('full','Gesamttest',bars),('in_sample','In-Sample-Test',bars[:split]),('out_of_sample','Out-of-Sample-Test',bars[split:])]:
+        require_research();progress(db,agent_id,'backtest',label)
+        result[key]=simulate(data,spec,guard=require_research)
     window=max(spec['lookback']+11,len(bars)//4)
     for start in range(split,len(bars)-window+1,window):
-        result['walk_forward'].append(simulate(bars[start:start+window],spec))
+        require_research();progress(db,agent_id,'backtest','Walk-Forward-Test')
+        result['walk_forward'].append(simulate(bars[start:start+window],spec,guard=require_research))
     digest=hashlib.sha256(dumps(bars).encode()).hexdigest()
     bid=uid()
     with db.tx() as c:
+        require_research()
         c.execute('INSERT INTO backtests VALUES(?,?,?,?,?,?,?,?)',
                   (bid,agent_id,strategy_id,symbol,digest,dumps(spec),dumps(result),now()))
         c.execute("UPDATE strategies SET status='tested' WHERE id=?",(strategy_id,))

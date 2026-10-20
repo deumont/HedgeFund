@@ -10,7 +10,7 @@ with httpx.Client(base_url='http://127.0.0.1:8765',trust_env=False) as client:
     assert client.get('/api/overview').status_code==401
     response=client.post('/api/login',json={'password':password})
     response.raise_for_status()
-    for path in ['overview','closeout','research','agents','agents/17','system','portfolios','portfolio/fund','chats','data/jobs','data/news','data/decisions','data/strategies','data/orders_all']:
+    for path in ['overview','closeout','research','research-roster','research/agents/1','team','agents','agents/17','system','portfolios','portfolio/fund','chats','data/jobs','data/news','data/decisions','data/strategies','data/orders_all']:
         r=client.get('/api/'+path)
         r.raise_for_status()
         print(path,'OK')

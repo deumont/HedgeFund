@@ -128,6 +128,9 @@ CREATE INDEX IF NOT EXISTS ix_agent_reports_day ON agent_reports(agent_id,report
 CREATE TABLE IF NOT EXISTS daily_cycles(
  date TEXT PRIMARY KEY,roster TEXT NOT NULL,reports TEXT NOT NULL,status TEXT NOT NULL,
  summary TEXT NOT NULL,decision_ids TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS research_drafts(
+ agent_id INTEGER PRIMARY KEY REFERENCES agents(id),strategy_id TEXT NOT NULL,
+ context TEXT NOT NULL,result TEXT NOT NULL,received_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_events_agent ON events(agent_id,id);
 CREATE INDEX IF NOT EXISTS ix_jobs_status ON jobs(status,priority,available_at);
 CREATE INDEX IF NOT EXISTS ix_fills_portfolio ON fills(portfolio_id,created_at);

@@ -5,7 +5,7 @@ from backend.management import ManagementService
 from backend.worker import Worker,enqueue
 
 
-def test_trade_worker_and_management_claim_disjoint_jobs(db):
+def test_trade_worker_and_management_claim_disjoint_jobs(db,research_morning):
     cfg=Settings(_env_file=None,openai_api_key='')
     report=enqueue(db,'agent_report',{},76,priority=0)
     analysis=enqueue(db,'analysis',{},1,priority=60)

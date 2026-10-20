@@ -109,6 +109,10 @@ Ab 07:30 Berlin laufen wiederholte Vorbereitungsrunden. Nach Handelsende bewerte
 sich alle 100 Agenten selbst; danach entscheidet der Manager über belegte
 Auf-/Abstiege oder Beibehalten, wirksam frühestens am nächsten Morgen. Details
 und unveränderte Nachweis-/Ausführungsgrenzen stehen in der Agentenkonsole.
+Forschung, Backtests und Strategieänderungen enden verbindlich um **15:30 Berlin**.
+Das Research Lab zeigt für jeden der 100 Agenten automatisch aktualisierte
+Analysen, Tests und Versionsänderungen. Im AI Manager stehen geplante und
+tatsächlich aktivierte Teamwechsel mit Gründen und Zeitstempeln.
 
 Im freigegebenen Paper-Experimentiermodus wählen Strategien ihre Positionsanteile
 selbst (`position_pct`, gleicher Parameter im Backtest). Keine festen Eurobudgets;

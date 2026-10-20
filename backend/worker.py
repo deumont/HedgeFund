@@ -14,6 +14,7 @@ from .providers import Providers,BrokerValidation,safe_error
 from .intelligence import AI,BudgetError,manager_chat,evaluate,apply_rotations,propose_swap
 from .backtest import run_backtest
 from .signals import SignalEngine
+from .research import research_window,require_research,ResearchClosed
 
 
 def enqueue(db,kind,payload=None,agent_id=None,priority=50,dedupe=None):
@@ -80,6 +81,10 @@ class Worker:
                         result=await self.execute(job)
                         with self.db.tx() as c:
                             c.execute("UPDATE jobs SET status='completed',payload=?,updated_at=?,error=NULL WHERE id=?",(dumps(json.loads(job['payload'])|{'result':result}),now(),job['id']))
+                    except ResearchClosed as exc:
+                        with self.db.tx() as c:
+                            c.execute("UPDATE jobs SET status='pending',attempts=MAX(0,attempts-1),available_at=?,error=?,updated_at=? WHERE id=?",
+                                (datetime.fromisoformat(research_window()['next_start']).astimezone(timezone.utc).isoformat(),str(exc),now(),job['id']))
                     except BudgetError as exc:
                         self.fail(job,str(exc),'blocked')
                     except (RiskError,ValueError) as exc:
@@ -128,8 +133,9 @@ class Worker:
                 save_reply(self.db,mid,'Anfrage konnte nicht abgeschlossen werden: '+error,[{'source':'Systemmeldung','job_id':job['id']}])
 
     def claim(self):
+        research_open=research_window()['open']
         with self.db.tx() as c:
-            row=c.execute("SELECT * FROM jobs WHERE status='pending' AND kind NOT IN ('agent_report','manager_review','manager_daily') AND available_at<=? ORDER BY priority,created_at LIMIT 1",(now(),)).fetchone()
+            row=c.execute("SELECT * FROM jobs WHERE status='pending' AND kind NOT IN ('agent_report','manager_review','manager_daily') AND (? OR kind NOT IN ('analysis','backtest')) AND available_at<=? ORDER BY priority,created_at LIMIT 1",(research_open,now())).fetchone()
             if row:
                 c.execute("UPDATE jobs SET status='running',attempts=attempts+1,updated_at=? WHERE id=?",(now(),row['id']))
                 return dict(row)|{'attempts':row['attempts']+1}
@@ -162,15 +168,14 @@ class Worker:
             if clock['phase']=='preparing':
                 for symbol in self.cfg.symbols:
                     enqueue(self.db,'historical',{'symbol':symbol},priority=30,dedupe='history-'+day+'-'+symbol)
-        if self.cfg.openai_api_key and self.db.get('engine_enabled'):
+        if self.cfg.openai_api_key and self.db.get('engine_enabled') and research_window(stamp)['open']:
             # Scheduled research is allowed; discretionary trading is exclusively signal-driven.
             # Hourly premarket research rounds from 07:30; never a timer for orders.
             group='review' if clock['phase']=='review' else 'morning-'+str(max(0,(local.hour*60+local.minute-450)//60))
             # Rotate research ordering across dates so a cost cap never permanently favors low IDs.
             rotation=local.date().toordinal()%100
             for a in self.db.all('SELECT * FROM agents WHERE paused=0 ORDER BY (id+?)%100',(rotation,)):
-                if clock['phase'] in ('preparing','closed','review','calendar_missing'):
-                    enqueue(self.db,'analysis',agent_id=a['id'],priority=60,dedupe=f"analysis-{day}-{group}-{a['id']}")
+                enqueue(self.db,'analysis',agent_id=a['id'],priority=60,dedupe=f"analysis-{day}-{group}-{a['id']}")
             # End-of-day reports and staffing belong to the durable management service.
 
     def monitor_signals(self,at=None):
@@ -316,6 +321,7 @@ class Worker:
     async def execute(self,job):
         kind=job['kind']
         payload=json.loads(job['payload'])
+        if kind in ('analysis','backtest'):require_research()
         if kind=='fx':
             return await self.providers.fx()
         if kind=='diagnose':
@@ -353,7 +359,7 @@ class Worker:
             final_action='HOLD'
             order_id=None
             final_reason=result.conclusion
-            if result.action in ('buy','sell') and agent['department']!='research':
+            if research_window()['open'] and result.action in ('buy','sell') and agent['department']!='research':
                 try:
                     order=self.ledger.submit(job['agent_id'],result.symbol,result.action,result.qty,'analysis-'+aid,
                         stop_usd=result.stop_usd,take_usd=result.take_usd,reason=result.conclusion)

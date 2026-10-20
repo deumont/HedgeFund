@@ -273,6 +273,24 @@ def create_app(cfg=None,db=None):
         if offset<0 or offset>1000000:raise HTTPException(400,'Ungültiger Seitenoffset')
         return research_view(db,offset)
 
+    @app.get('/api/research/agents/{aid}')
+    def research_agent(aid:int,offset:int=0):
+        from .research import agent_research
+        if not 1<=aid<=100:raise HTTPException(404,'Agent fehlt')
+        if offset<0 or offset>1000000:raise HTTPException(400,'Ungültiger Seitenoffset')
+        return agent_research(db,aid,offset)
+
+    @app.get('/api/research-roster')
+    def research_roster():
+        from .research import research_roster,research_window
+        return {'agents':research_roster(db),'window':research_window(),'as_of':now()}
+
+    @app.get('/api/team')
+    def team(offset:int=0):
+        from .research import team_view
+        if offset<0 or offset>1000000:raise HTTPException(400,'Ungültiger Seitenoffset')
+        return team_view(db,offset)
+
     @app.get('/api/portfolio/{pid}')
     def portfolio(pid:str):
         return {'portfolio':ledger.portfolio(pid),

@@ -20,7 +20,7 @@ def test_strict_schema_nested_objects():
 
 
 @pytest.mark.asyncio
-async def test_real_sdk_response_contract_persists_usage_memory_strategy(db,monkeypatch):
+async def test_real_sdk_response_contract_persists_usage_memory_strategy(db,monkeypatch,research_morning):
     today=datetime.now(timezone.utc).date().isoformat()
     with db.tx() as c:
         c.execute('INSERT OR REPLACE INTO fx VALUES(?,?,?,?)',(today,'1.10','TEST fixture',AT.isoformat()))

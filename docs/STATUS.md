@@ -1,5 +1,25 @@
 # Tatsächlicher Stand — 20.10.2026
 
+## Live-Research je Agent und feste Forschungszeit — 23 Uhr Berlin
+
+179 Tests bestanden; Frontend-Produktionsbuild und authentifizierte HTTP-/Socket-
+Prüfung erfolgreich. Research Lab mit allen 100 anklickbaren Agenten: echte
+Arbeitsstufen, Analysen, Backtestergebnisse, Strategieversionen und Parameterdiffs,
+automatisch aktualisiert. Mit Agent 42: AMZN-Test und Vergleich V1/V2 im Browser
+geprüft. Forschung pausiert aktuell außerhalb 07:30–15:30 Europe/Berlin.
+
+Zeitgrenze gilt vor Claim, Modellaufruf, Backtest-Ausführung und Speichern von
+Strategieänderungen; Tests decken Sommerzeit, exakt 15:30, direkte Umgehungsversuche,
+überschreitende Simulation und verspätete Modellantwort mit Fortsetzung ab.
+Vorhandene Antworten werden zwischengespeichert; keine neue Anfrage für schon
+vorhandene Ergebnisse. Daten-/Nachrichtenfeed, Handelsschutz und Tagesreviews
+bleiben getrennt. Ältere Aufzeichnungen werden nicht rückwirkend verändert.
+
+AI Manager zeigt jetzt die Teamhistorie mit Gründen, Rollen, geplantem Datum,
+Zurückstellung bei offenen Positionen/Orders und tatsächlichem Aktivierungszeitpunkt.
+Aktuell wurden keine Teamwechsel ausgeführt; tägliche Beibehaltungsentscheidung
+separat sichtbar. Keine Testbeförderung in der echten lokalen Datenbank angelegt.
+
 ## Neue Tagesroutine und Research-Ansicht — 22 Uhr Berlin
 
 Abschlussprüfung: **166 Tests bestanden**, Produktionsbuild erfolgreich.

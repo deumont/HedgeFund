@@ -56,7 +56,7 @@ def test_backtest_reproducible_costs_and_no_lookahead():
     assert all(t['time']>data[SPEC['lookback']]['time'] for t in result['trades'])
 
 
-def test_store_oos_and_hash(db):
+def test_store_oos_and_hash(db,research_morning):
     with db.tx() as c:
         c.execute("UPDATE strategies SET spec=? WHERE id='agent-001-v1'",(dumps(SPEC|{'timeframe_minutes':1440}),))
         for b in bars(400):

@@ -2,6 +2,31 @@
 
 ## Neu: Tagesroutine und geschlossene Börse
 
+**Neueste Präzisierung:** Das Forschungsfenster ist täglich **07:30–15:30 Uhr
+Europe/Berlin**, unabhängig von Sommerzeitverschiebungen der US-Börse. Start und
+Speichern von Analysen, Backtests und Strategieanpassungen sind serverseitig
+gesperrt, sobald dieses Fenster geschlossen ist. Offene Forschungsjobs warten
+ohne Fehlversuch auf das nächste Fenster; nach Ablauf eintreffende vollständige
+Modellantworten oder Tool-Konversationen werden als Entwurf gespeichert und beim
+nächsten Fenster ohne erneutes Anfordern bereits vorhandener Ausgaben fortgesetzt.
+Kursdaten, Nachrichten, Handelsschutz und abendliche Berichte/Personalentscheidungen
+arbeiten weiter nach ihren gesonderten Regeln. Ältere Forschungsaufzeichnungen
+aus der Zeit vor dieser Präzisierung werden nicht rückwirkend umgeschrieben.
+
+Das Research Lab bleibt während und außerhalb der Börsensitzung erreichbar. Alle
+100 Agenten können ausgewählt werden. Die Detailansicht aktualisiert lokal alle
+fünf Sekunden, über Supabase alle 15 Sekunden: gespeicherte Arbeitsschritte,
+Warteschlange, Analysehypothesen und Ergebnisse, vollständige Backtests sowie
+Strategieversionen mit genauem Vorher-/Nachher-Vergleich. Keine erfundenen
+Fortschrittsprozente oder internen Denkprotokolle. Ein Offline-Worker wird nicht
+als laufende Forschung ausgegeben; Abfragen sind lesend und starten keine KI-Jobs.
+
+Im AI Manager steht eine separate Teamhistorie: Vorschlag, beschlossen/geplant,
+wegen Positionen/Orders zurückgestellt, Konflikt oder tatsächlich aktiviert mit
+Zeitstempel. Beide beteiligten Agenten, vorherige/nächste Abteilung und Begründung
+sind sichtbar. Tagesentscheidungen ohne Rollenwechsel bleiben gesondert lesbar.
+Die Anzeige einer Planung behauptet keine bereits ausgeführte Beförderung.
+
 Ab 07:30 Europe/Berlin laufen stündliche Vorbereitungsanalysen bis Börsenöffnung.
 Agenten erhalten aktuelle Nachrichten, eigene Berichte, Managerbeurteilungen und
 die letzte Personalentscheidung. Kandidaten werden weiter über die sichere DSL

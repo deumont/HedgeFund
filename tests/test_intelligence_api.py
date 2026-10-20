@@ -77,7 +77,7 @@ def test_no_live_transport_or_credentials(db):
     assert db.one("SELECT status FROM integrations WHERE name='alpaca_paper'")['status']=='blocked'
 
 
-def test_queue_recovery_and_dedup(db):
+def test_queue_recovery_and_dedup(db,research_morning):
     cfg=config(db)
     a=enqueue(db,'analysis',agent_id=1,dedupe='same')
     b=enqueue(db,'analysis',agent_id=1,dedupe='same')

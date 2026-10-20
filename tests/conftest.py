@@ -10,6 +10,17 @@ AT=datetime(2026,10,20,15,30,tzinfo=timezone.utc)
 
 
 @pytest.fixture
+def research_morning(monkeypatch):
+    import backend.research as research
+    class Clock(datetime):
+        current=datetime(2026,10,20,8,tzinfo=timezone.utc)
+        @classmethod
+        def now(cls,tz=None):return cls.current
+    monkeypatch.setattr(research,'datetime',Clock)
+    return Clock
+
+
+@pytest.fixture
 def db(tmp_path):
     d=DB(tmp_path/'test.sqlite3')
     d.init()

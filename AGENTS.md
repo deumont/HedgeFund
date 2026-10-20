@@ -69,3 +69,12 @@ erzwungenen Trades oder Rollenwechsel. Bei geschlossener Börse automatisch eine
 Research-/Review-Ansicht, dort Research Lab wieder sichtbar. Keine manuellen
 Orders/Uploads und kein Manager Office. Der tatsächliche Börsenkalender bestimmt
 die Dashboardumschaltung, nicht die persönliche Worker-Endzeit.
+
+Aktueller CEO-Auftrag: Analysen, Backtests und Strategieanpassungen ausschließlich
+07:30 einschließlich bis 15:30 ausschließlich, Europe/Berlin. Warteschlange und
+direkte Ausführung müssen die Grenze respektieren; verspätete Modellantworten
+werden ohne Aktivierung zwischengespeichert und im nächsten Fenster fortgesetzt.
+Handels-/Schutzkontrollen und abendliche Eigenbewertungen/Managerentscheidungen
+behalten ihre eigenen Zeitpläne. Research Lab jederzeit lesbar, alle 100 Agenten
+anklickbar mit aktualisierten Analysen, Backtests, Ergebnissen und Versionsdiffs.
+AI Manager zeigt zusätzlich die Historie geplanter und ausgeführter Teamwechsel.
