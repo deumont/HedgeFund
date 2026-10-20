@@ -88,6 +88,11 @@ werden nicht als tatsächlich gehandelte Fondsgewinne ausgewiesen.
 
 ## Freigabe durch CEO
 
+**Neuester Budgetauftrag, 20.10.2026:** Tägliches OpenAI-API-Limit entfernt.
+30 EUR Monatsbudget bleibt atomar durchgesetzt. Historische Tageskosten und
+unklare Reservierungen bleiben vollständig erhalten; Tageskosten blockieren
+keine weiteren Anfragen. Die unten beschriebenen Tageslimits sind Altstände.
+
 **Aktualisierung 20.10.2026, 18 Uhr Berlin:** Der CEO hat die festen Positions-,
 Exposure- und Verlustbudgets für interne Paper-Experimente aufgehoben.
 `paper_sizing_mode=strategy` verwendet den selbst gewählten Strategieparameter

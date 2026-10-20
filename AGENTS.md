@@ -40,3 +40,7 @@ CEO-Änderung vom 20.10.2026: Im ausdrücklich freigegebenen internen Paper-Modu
 Euro-, Allokations- und Verlustbudgets sind dort aufgehoben. Verfügbares virtuelles
 Kapital, Reservierungen, Liquidität, valide Signale, Datenqualität, mindestens
 15-Minuten-Zeitrahmen und Paper-only bleiben zwingend. API-Budgets unverändert.
+
+CEO-Budgetänderung vom 20.10.2026: Das zusätzliche tägliche OpenAI-Limit entfällt.
+Das monatliche Limit bleibt 30 EUR; atomare Reservierungen und die konservative
+Anrechnung unklarer Anfragen bleiben erhalten. Tageskosten sind nur eine Statistik.

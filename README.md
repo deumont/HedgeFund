@@ -36,7 +36,7 @@ den echten OpenAI-Test prüfen. Der OpenAI-Test kann kleine API-Kosten verursach
 Erst danach die angezeigten Risikolimits im Risk Center bestätigen und den
 Paper-Handel explizit freigeben. Bis dahin bleiben Einstiege gesperrt.
 
-Das freigegebene Budget ist **30 EUR/Monat**, zusätzlich **1 EUR/Tag**. Es wird
+Das freigegebene Budget ist **30 EUR/Monat**, ohne zusätzliches Tageslimit. Es wird
 vor jedem Modellaufruf atomar reserviert; unbekannte oder unterbrochene Anfragen
 bleiben konservativ angerechnet. Preisstand und Modell sind dokumentiert. Neue
 Modelle benötigen eine geprüfte Preiskarte. Weitere Anbieterbudgets/-warnungen

@@ -103,13 +103,10 @@ class AI:
             # Bytes bound token count; no cache discount, 30% pricing/FX safety margin.
             upper=units((Decimal(byte_bound)*self.cfg.openai_input_usd_per_million+Decimal(output_limit)*self.cfg.openai_output_usd_per_million)/1_000_000/fx*Decimal('1.30'))
             local=at.astimezone(BERLIN)
-            day=local.replace(hour=0,minute=0,second=0,microsecond=0).astimezone(timezone.utc).isoformat()
             month=local.replace(day=1,hour=0,minute=0,second=0,microsecond=0).astimezone(timezone.utc).isoformat()
-            totals=[]
-            for start in (day,month):
-                totals.append(c.execute("SELECT COALESCE(SUM(CASE WHEN status='settled' THEN cost_u ELSE reserved_u END),0) FROM usage WHERE created_at>=?",(start,)).fetchone()[0])
-            if totals[0]+upper>units(self.cfg.daily_budget_eur) or totals[1]+upper>units(self.cfg.monthly_budget_eur):
-                raise BudgetError('Lokales Tages-/Monatsbudget ausgeschöpft; neue KI-Aufgaben gesperrt')
+            total=c.execute("SELECT COALESCE(SUM(CASE WHEN status='settled' THEN cost_u ELSE reserved_u END),0) FROM usage WHERE created_at>=?",(month,)).fetchone()[0]
+            if total+upper>units(self.cfg.monthly_budget_eur):
+                raise BudgetError('Lokales Monatsbudget ausgeschöpft; neue KI-Aufgaben gesperrt')
             rid=uid()
             c.execute('INSERT INTO usage VALUES(?,?,?,?,0,0,?,0,?,?)',(rid,agent_id,kind,model,upper,'reserved',now()))
         return rid,fx

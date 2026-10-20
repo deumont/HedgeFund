@@ -414,7 +414,7 @@ def create_app(cfg=None,db=None):
                 'disk_free_gb':disk.free/1e9,'integrations':db.all('SELECT * FROM integrations ORDER BY name'),
                 'worker_heartbeat':db.get('worker_heartbeat'),'engine_enabled':db.get('engine_enabled'),
                 'queue':db.all('SELECT status,COUNT(*) count FROM jobs GROUP BY status'),
-                'usage':usage,'budget_monthly_eur':float(cfg.monthly_budget_eur),'budget_daily_eur':float(cfg.daily_budget_eur),**totals,
+                'usage':usage,'budget_monthly_eur':float(cfg.monthly_budget_eur),'budget_daily_eur':None,**totals,
                 'risk':active_risk,'fund_cash_limits':active_caps,'paper_sizing_mode':db.get('paper_sizing_mode','capped'),'risk_confirmed':db.get('risk_confirmed'),
                 'configured':{'openai':bool(cfg.openai_api_key),'alpaca':cfg.has_alpaca,'sec':bool(cfg.sec_user_agent)},
                 'model':cfg.openai_model,'manager_model':cfg.openai_manager_model,'feed':cfg.alpaca_feed,

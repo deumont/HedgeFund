@@ -17,7 +17,6 @@ class Settings(BaseSettings):
     openai_input_usd_per_million: Decimal = Decimal("0.75")
     openai_output_usd_per_million: Decimal = Decimal("4.5")
     monthly_budget_eur: Decimal = Decimal("30")
-    daily_budget_eur: Decimal = Decimal("1")
     alpaca_feed: str = "iex"
     watchlist: str = "SPY,QQQ,AAPL,MSFT,NVDA,AMZN,META,GOOGL,TSLA,AMD"
     sec_user_agent: str = ""
