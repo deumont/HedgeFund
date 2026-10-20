@@ -77,6 +77,8 @@ def seed(db):
                 c.execute('UPDATE strategies SET spec=? WHERE id=?',(dumps(spec),row['id']))
         if not c.execute("SELECT 1 FROM events LIMIT 1").fetchone():
             event(c, "bootstrap", "100 Agenten gespeichert: 50 Research, 25 Demo, 25 Fund. Anfangsbesetzung ist unbewertet.")
+    from .news_agents import configure
+    configure(db)
 
 
 def add_portfolio(c, pid, kind, owner, amount):

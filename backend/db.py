@@ -131,6 +131,15 @@ CREATE TABLE IF NOT EXISTS daily_cycles(
 CREATE TABLE IF NOT EXISTS research_drafts(
  agent_id INTEGER PRIMARY KEY REFERENCES agents(id),strategy_id TEXT NOT NULL,
  context TEXT NOT NULL,result TEXT NOT NULL,received_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS agent_mandates(
+ agent_id INTEGER PRIMARY KEY REFERENCES agents(id),approach TEXT NOT NULL,
+ focus TEXT NOT NULL,mandate TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS event_theses(
+ id TEXT PRIMARY KEY,agent_id INTEGER NOT NULL,symbol TEXT NOT NULL,event_type TEXT NOT NULL,
+ direction TEXT NOT NULL,confidence REAL NOT NULL,evidence_ids TEXT NOT NULL,
+ summary TEXT NOT NULL,company_context TEXT NOT NULL,available_at TEXT NOT NULL,
+ expires_at TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS ix_event_theses ON event_theses(agent_id,symbol,created_at);
 CREATE INDEX IF NOT EXISTS ix_events_agent ON events(agent_id,id);
 CREATE INDEX IF NOT EXISTS ix_jobs_status ON jobs(status,priority,available_at);
 CREATE INDEX IF NOT EXISTS ix_fills_portfolio ON fills(portfolio_id,created_at);

@@ -40,7 +40,7 @@ def day_evidence(db,aid,day=None):
     trades=db.all("SELECT f.*,o.reason,s.observations FROM fills f JOIN orders o ON o.id=f.order_id LEFT JOIN order_signals os ON os.order_id=o.id LEFT JOIN signal_decisions s ON s.id=os.signal_id WHERE f.agent_id=? AND f.portfolio_id=? AND f.created_at>=? AND f.created_at<? ORDER BY f.created_at",(aid,pid,start,end))
     for r in trades:
         proof=json.loads(r.pop('observations') or '{}')
-        r['signal']={k:proof[k] for k in ('indicators','last_bar_end','available_after','exit_condition','strategy_spec','completed_bars_held','policy') if k in proof}
+        r['signal']={k:proof[k] for k in ('indicators','last_bar_end','available_after','exit_condition','strategy_spec','completed_bars_held','policy','event_thesis','entry_basis') if k in proof}
     analyses=db.all('SELECT id,result,created_at FROM analyses WHERE agent_id=? AND created_at>=? AND created_at<? ORDER BY created_at',(aid,start,end))
     tests=db.all('SELECT id,symbol,result,created_at FROM backtests WHERE agent_id=? AND created_at>=? AND created_at<? ORDER BY created_at',(aid,start,end))
     actions=[{'id':r['id'],'kind':'trade','time':r['created_at'],'symbol':r['symbol'],'side':r['side'],'qty':r['qty'],'reason':r['reason'],'signal':r['signal'],'realized_eur':r['realized_u']/1e6} for r in trades]

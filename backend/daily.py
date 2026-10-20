@@ -78,7 +78,7 @@ def promotion_ready(db,agent):
     if agent['department']!='research':return False
     tests=db.all('SELECT symbol,result,data_hash,parameters FROM backtests WHERE agent_id=?',(agent['id'],))
     unique={(t['symbol'],t['data_hash'],t['parameters']):t for t in tests}
-    qualifying=[t for t in unique.values() if (r:=json.loads(t['result']).get('out_of_sample',{})).get('return_pct',0)>0 and len(r.get('trades',[]))>=5]
+    qualifying=[t for t in unique.values() if ((r:=json.loads(t['result']).get('out_of_sample',{})).get('return_pct') or 0)>0 and len(r.get('trades',[]))>=5]
     return len(qualifying)>=3 and len({t['symbol'] for t in qualifying})>=2
 
 

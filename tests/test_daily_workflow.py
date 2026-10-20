@@ -158,6 +158,10 @@ async def test_morning_research_continues_hourly_without_placing_orders(db,monke
     assert len(db.all("SELECT * FROM jobs WHERE kind='analysis'"))==100
     Clock.current+=timedelta(hours=1)
     await worker.tick(phase(db,Clock.current))
+    assert len(db.all("SELECT * FROM jobs WHERE kind='analysis'"))==100
+    with db.tx() as c:c.execute("UPDATE jobs SET status='completed' WHERE kind='analysis'")
+    Clock.current+=timedelta(hours=1)
+    await worker.tick(phase(db,Clock.current))
     assert len(db.all("SELECT * FROM jobs WHERE kind='analysis'"))==200
     assert not db.all('SELECT * FROM orders')
 

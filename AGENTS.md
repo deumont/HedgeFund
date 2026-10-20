@@ -78,3 +78,13 @@ Handels-/Schutzkontrollen und abendliche Eigenbewertungen/Managerentscheidungen
 behalten ihre eigenen Zeitpläne. Research Lab jederzeit lesbar, alle 100 Agenten
 anklickbar mit aktualisierten Analysen, Backtests, Ergebnissen und Versionsdiffs.
 AI Manager zeigt zusätzlich die Historie geplanter und ausgeführter Teamwechsel.
+
+Neuester CEO-Auftrag: Genau 50 Agenten verfolgen Nachrichten-/Politik-/Unternehmens-
+ansätze statt technischer Einstiege, übrige 50 technische Strategien. Identitäten,
+Abteilungen 50/25/25 und Konten bewahren. Forschungsaufträge rotieren über den
+bestätigten handelbaren US-Aktienkatalog und mehrere Aktien je Agent statt nur SPY.
+Nachrichtenagenten verwenden belegte Unternehmensthesen und Ereignisstudien;
+nachträglich geladene Nachrichten sind kein historischer Point-in-time-Nachweis,
+Kursreaktionen keine Strategiegewinne. Ohne geeignete Quellen kein Einstieg und
+kein technischer Ersatzhandel. Alle bestehenden Zeit-, Kapital- und Datengrenzen
+gelten weiterhin.

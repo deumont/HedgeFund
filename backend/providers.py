@@ -2,6 +2,7 @@
 import asyncio
 import json
 import hashlib
+import math
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -179,6 +180,66 @@ class Providers:
         self.db.integration('intraday_bars','connected',f'{count} echte abgeschlossene 15-Minuten-Bars; mindestens 15 Minuten verzögert. Keine Echtzeit-Ausführung aus diesen Bars.')
         return {'bars':count,'timeframe_minutes':15,'declared_delay_minutes':15}
 
+    def strategy_history(self,symbol,spec):
+        """Fetch enough genuine bars for this strategy's separate test windows."""
+        from .universe import eligible
+        from .backtest import validate_spec
+        validate_spec(spec)
+        if not eligible(self.db,symbol):raise ValueError('Unbestätigtes Aktiensymbol')
+        minutes=spec.get('timeframe_minutes',15)
+        required=max(100,spec['holding_bars']*5) if spec['kind']=='event_driven' else math.ceil((spec['lookback']+12)/.3)
+        per_session=1 if minutes==1440 else max(1,390/minutes)
+        days=min(3650,max(20,math.ceil(required/per_session*7/5)+14))
+        end=datetime.now(timezone.utc)-timedelta(minutes=15)
+        daily=minutes==1440
+        aggregate=minutes>=60 and minutes%60!=0
+        frame=TimeFrame.Day if daily else TimeFrame(15,TimeFrameUnit.Minute) if aggregate else TimeFrame(minutes//60,TimeFrameUnit.Hour) if minutes%60==0 else TimeFrame(minutes,TimeFrameUnit.Minute)
+        records=data_client(StockHistoricalDataClient,self.cfg).get_stock_bars(StockBarsRequest(
+            symbol_or_symbols=symbol,timeframe=frame,start=end-timedelta(days=days),end=end,
+            adjustment=Adjustment.ALL if daily else Adjustment.RAW,feed=DataFeed(self.cfg.alpaca_feed)))
+        items=records.data.get(symbol,[])
+        if aggregate:
+            from types import SimpleNamespace
+            groups={}
+            for item in items:
+                local=item.timestamp.astimezone(NEW_YORK);anchor=local.replace(hour=9,minute=30,second=0,microsecond=0)
+                if local<anchor:continue
+                index=int((local-anchor).total_seconds()//(minutes*60))
+                groups.setdefault(anchor+timedelta(minutes=index*minutes),[]).append(item)
+            items=[]
+            for start,group in sorted(groups.items()):
+                group.sort(key=lambda x:x.timestamp)
+                if len(group)!=minutes//15 or any(g.timestamp!=start+timedelta(minutes=i*15) for i,g in enumerate(group)):continue
+                items.append(SimpleNamespace(timestamp=start,open=group[0].open,high=max(g.high for g in group),low=min(g.low for g in group),close=group[-1].close,volume=sum(g.volume for g in group)))
+        count=0
+        with self.db.tx() as c:
+            for item in items:
+                if item.timestamp+timedelta(minutes=minutes)>end:continue
+                c.execute('INSERT OR REPLACE INTO bars VALUES(?,?,?,?,?,?,?,?,?,?)',
+                    (symbol,item.timestamp.isoformat(),'1Day' if daily else f'{minutes}Min',str(item.open),str(item.high),str(item.low),str(item.close),int(item.volume),
+                     'Alpaca '+self.cfg.alpaca_feed.upper(),'all' if daily else 'raw'))
+                count+=1
+        self.db.integration('strategy_history','connected',f'{symbol}: {count} echte Bars für {minutes}-Minuten-Strategie nachgeladen; {required} Bars als Test-Ziel')
+        return {'symbol':symbol,'bars':count,'target_bars':required,'days':days}
+
+    def company_news(self,symbol,days=60):
+        from .universe import eligible
+        if not eligible(self.db,symbol):raise ValueError('Unbestätigtes Unternehmenssymbol')
+        key='company-news-'+symbol+'-'+now()[:10]
+        if self.db.get(key):return {'cached':True}
+        request=NewsRequest(symbols=symbol,start=datetime.now(timezone.utc)-timedelta(days=days),limit=50,include_content=True,sort='desc')
+        result=data_client(NewsClient,self.cfg).get_news(request)
+        items=getattr(result,'news',None)
+        if items is None:items=result.data.get('news',[])
+        for item in items:
+            row=plain(item);self.store_news(row)
+            if row.get('content'):
+                with self.db.tx() as c:
+                    c.execute('INSERT OR REPLACE INTO documents VALUES(?,?,?,?,?,?,?)',
+                        (f"company-news-{symbol}-{row['id']}",'company_news',symbol,row.get('url') or row.get('source') or 'Alpaca News',dumps(row),str(row['created_at']),now()))
+        self.db.set(key,now())
+        return {'symbol':symbol,'articles':len(items),'coverage':'Letzte verfügbare Unternehmensmeldungen; keine vollständige Nachrichtenhistorie garantiert'}
+
     def news(self):
         client = data_client(NewsClient,self.cfg)
         previous = self.db.get('last_news_at')
@@ -208,7 +269,7 @@ class Providers:
             raise ValueError('Nachrichtenzeit ohne Zeitzone')
         with self.db.tx() as c:
             old=c.execute('SELECT * FROM news WHERE id=?',(str(row['id']),)).fetchone()
-            c.execute("INSERT INTO news VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET headline=excluded.headline,summary=excluded.summary,url=excluded.url,symbols=excluded.symbols",(
+            c.execute("INSERT INTO news VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET received_at=CASE WHEN news.headline!=excluded.headline OR news.summary!=excluded.summary OR news.symbols!=excluded.symbols THEN excluded.received_at ELSE news.received_at END,headline=excluded.headline,summary=excluded.summary,url=excluded.url,symbols=excluded.symbols",(
                 str(row['id']),row.get('source') or 'Alpaca News',row['headline'],row.get('summary') or '',
                 row.get('url') or '',dumps(row.get('symbols',[])),stamp.isoformat(),now(),
                 'Quellenmeldung, nicht unabhängig verifiziert','Für alle 100 Agenten verfügbar'))

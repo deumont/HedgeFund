@@ -216,6 +216,8 @@ def create_app(cfg=None,db=None):
         states=agent_states(db)
         rows=db.all('SELECT * FROM agents ORDER BY id')
         for row in rows:
+            from .news_agents import mandate
+            row.update(mandate(db,row['id']))
             e=db.one('SELECT * FROM evaluations WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(row['id'],))
             if not e or (datetime.now(timezone.utc)-datetime.fromisoformat(e['created_at'])).total_seconds()>300:
                 evaluate(db,row['id'])
@@ -232,6 +234,8 @@ def create_app(cfg=None,db=None):
         latest=db.one('SELECT created_at FROM evaluations WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(aid,))
         if not latest or (datetime.now(timezone.utc)-datetime.fromisoformat(latest['created_at'])).total_seconds()>300:
             evaluate(db,aid)
+        from .news_agents import mandate
+        profile.update(mandate(db,aid))
         result={'profile':profile}
         from .agent_state import agent_states
         result.update(agent_states(db,[aid])[aid])
@@ -470,6 +474,7 @@ def create_app(cfg=None,db=None):
                 'risk':active_risk,'fund_cash_limits':active_caps,'paper_sizing_mode':db.get('paper_sizing_mode','capped'),'risk_confirmed':db.get('risk_confirmed'),
                 'configured':{'openai':bool(cfg.openai_api_key),'alpaca':cfg.has_alpaca,'sec':bool(cfg.sec_user_agent)},
                 'model':cfg.openai_model,'manager_model':cfg.openai_manager_model,'feed':cfg.alpaca_feed,
+                'agent_approaches':db.all('SELECT approach,COUNT(*) count FROM agent_mandates GROUP BY approach'),
                 'stock_universe':{'tradable_count':db.one("SELECT COUNT(*) n FROM assets WHERE tradable=1 AND asset_class='us_equity'")['n'],
                                   'data_scope':'Alpaca US-Aktien/ETFs; Daten nach Bedarf, IEX ist kein Gesamtmarktfeed'},
                 'market_data_policy':db.get('market_data_policy'),

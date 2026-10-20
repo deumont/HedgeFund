@@ -14,6 +14,10 @@ def validate_spec(spec):
     timeframe=spec.get('timeframe_minutes',15)
     if type(timeframe) is not int or timeframe<15 or timeframe%15 or timeframe>1440:
         raise ValueError('Strategie-Zeitrahmen mindestens 15 Minuten, in 15-Minuten-Schritten')
+    if spec.get('kind')=='event_driven':
+        from .news_agents import EventStrategy
+        EventStrategy.model_validate(spec)
+        return spec
     if spec.get('kind') not in ('momentum','mean_reversion','ma_cross','breakout'):
         raise ValueError('Strategietyp nicht in sicherer DSL')
     for k,lo,hi in [('lookback',2,252),('holding_bars',1,126),('threshold',0,0.5),('stop_pct',0.001,0.25)]:
@@ -120,6 +124,9 @@ def run_backtest(db,agent_id,strategy_id,symbol):
         raise ValueError('Strategie fehlt')
     spec=json.loads(strategy['spec'])
     validate_spec(spec)
+    if spec['kind']=='event_driven':
+        from .news_agents import run_event_study
+        return run_event_study(db,agent_id,strategy,symbol)
     timeframe='1Day' if spec.get('timeframe_minutes',15)==1440 else str(spec.get('timeframe_minutes',15))+'Min'
     # Never silently use shorter candles or combine vendors/adjustment modes.
     dataset=db.one("SELECT source,adjustment FROM bars WHERE symbol=? AND timeframe=? GROUP BY source,adjustment ORDER BY COUNT(*) DESC LIMIT 1",(symbol,timeframe))

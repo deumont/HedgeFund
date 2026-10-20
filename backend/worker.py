@@ -168,27 +168,80 @@ class Worker:
             if clock['phase']=='preparing':
                 for symbol in self.cfg.symbols:
                     enqueue(self.db,'historical',{'symbol':symbol},priority=30,dedupe='history-'+day+'-'+symbol)
-        if self.cfg.openai_api_key and self.db.get('engine_enabled') and research_window(stamp)['open']:
-            # Scheduled research is allowed; discretionary trading is exclusively signal-driven.
-            # Hourly premarket research rounds from 07:30; never a timer for orders.
-            group='review' if clock['phase']=='review' else 'morning-'+str(max(0,(local.hour*60+local.minute-450)//60))
-            # Rotate research ordering across dates so a cost cap never permanently favors low IDs.
-            rotation=local.date().toordinal()%100
-            for a in self.db.all('SELECT * FROM agents WHERE paused=0 ORDER BY (id+?)%100',(rotation,)):
-                enqueue(self.db,'analysis',agent_id=a['id'],priority=60,dedupe=f"analysis-{day}-{group}-{a['id']}")
-            # End-of-day reports and staffing belong to the durable management service.
+        self.schedule_research(stamp)
+
+    def schedule_research(self,stamp):
+        if not self.cfg.openai_api_key or not self.db.get('engine_enabled') or not research_window(stamp)['open']:return
+        local=stamp.astimezone(BERLIN);day=local.date().isoformat()
+        bucket=max(0,(local.hour*60+local.minute-450)//60)
+        if getattr(self,'research_bucket',None)==(day,bucket):return
+        catalog=[r['symbol'] for r in self.db.all("SELECT symbol FROM assets WHERE tradable=1 AND asset_class='us_equity' ORDER BY symbol")]
+        headlines=self.db.all('SELECT headline,symbols FROM news ORDER BY published_at DESC LIMIT 300')
+        rotation=local.date().toordinal()%100
+        for agent in self.db.all('SELECT * FROM agents WHERE paused=0 ORDER BY (id+?)%100',(rotation,)):
+            from .news_agents import prepare_strategy,mandate
+            from .universe import research_symbols
+            prepare_strategy(self.db,agent['id'])
+            aid=agent['id'];strategy=self.db.one('SELECT * FROM strategies WHERE agent_id=? ORDER BY version DESC LIMIT 1',(aid,))
+            symbols=research_symbols(self.db,self.cfg,aid,local,bucket,catalog,headlines)
+            symbol=symbols[0] if symbols else 'SPY'
+            profile=mandate(self.db,aid)
+            assignment={'work_date':day,'department':agent['department'],'focus':agent['name'],
+                'assignment':profile.get('mandate',agent['mandate']),'approach':profile['approach'],'strategy_id':strategy['id'],'symbol':symbol,'research_symbols':symbols}
+            # Resume one durable task per individual agent, instead of accumulating
+            # a new paid request every hour while that agent is still waiting.
+            with self.db.tx() as c:
+                jobs=c.execute("SELECT id,payload,status FROM jobs WHERE agent_id=? AND kind='analysis' AND status IN ('pending','running') ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END,created_at",(aid,)).fetchall()
+                if jobs:
+                    first=jobs[0];payload=json.loads(first['payload']);updated={**payload,**assignment}
+                    if updated!=payload:c.execute('UPDATE jobs SET payload=? WHERE id=?',(dumps(updated),first['id']))
+                    for duplicate in jobs[1:]:
+                        if duplicate['status']=='pending':
+                            c.execute("UPDATE jobs SET status='superseded',error='Doppelter Forschungsauftrag durch individuellen Tagesauftrag ersetzt',updated_at=? WHERE id=?",(now(),duplicate['id']))
+            if not jobs:
+                enqueue(self.db,'analysis',assignment,aid,60,dedupe=f'analysis-{day}-morning-{bucket}-{aid}')
+            for stock in symbols:
+                pending=self.db.all("SELECT payload FROM jobs WHERE agent_id=? AND kind='backtest' AND status IN ('pending','running')",(aid,))
+                if not any(json.loads(p['payload']).get('strategy_id')==strategy['id'] and json.loads(p['payload']).get('symbol')==stock for p in pending):
+                    enqueue(self.db,'backtest',{**assignment,'symbol':stock},aid,45,dedupe=f"morning-test-{day}-{bucket}-{strategy['id']}-{stock}")
+        self.research_bucket=(day,bucket)
 
     def monitor_signals(self,at=None):
         """No inactivity counters, no trade quota, no time-since-last-trade trigger."""
         clock=phase(self.db,at)
         if not clock['trading']:
             return
+        from .news_agents import mandate,relevant_news
+        from .universe import eligible,active_symbols
+        # Runtime news assessment interprets current events; it cannot modify a
+        # strategy or run a backtest after the separate research cutoff.
+        news_bucket=int((at or datetime.now(timezone.utc)).timestamp())//900
+        scan_news=getattr(self,'news_bucket',None)!=news_bucket
+        self.news_bucket=news_bucket
+        for agent in self.db.all("SELECT id FROM agents WHERE department!='research' AND paused=0"):
+            aid=agent['id']
+            if not scan_news or mandate(self.db,aid)['approach']!='news' or not self.cfg.openai_api_key:continue
+            symbol=self.db.get('agent-stock-'+str(aid))
+            if not symbol:
+                candidates=list(dict.fromkeys(s for n in relevant_news(self.db,limit=40) for s in json.loads(n['symbols']) if eligible(self.db,s)))
+                if candidates:symbol=candidates[(aid-1)%len(candidates)]
+            if not symbol:continue
+            own=relevant_news(self.db,symbol,8)
+            if not own or not any(symbol in json.loads(n['symbols']) for n in own):continue
+            evidence=dumps(own)
+            import hashlib
+            key=f"news-thesis-{aid}-"+hashlib.sha256((symbol+evidence).encode()).hexdigest()[:20]
+            pending=self.db.one("SELECT id FROM jobs WHERE agent_id=? AND kind='news_thesis' AND status IN ('pending','running')",(aid,))
+            if not pending:enqueue(self.db,'news_thesis',{'symbol':symbol},aid,25,dedupe=key)
         for agent in self.db.all("SELECT id FROM agents WHERE department!='research' AND paused=0"):
             aid=agent['id']
             positions=self.db.all('SELECT symbol FROM positions WHERE agent_id=?',(aid,))
             from .universe import active_symbols
             candidates=active_symbols(self.db,self.cfg)
             preferred=self.db.get('agent-stock-'+str(aid))
+            if mandate(self.db,aid)['approach']=='news':
+                thesis=self.db.one('SELECT symbol FROM event_theses WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(aid,))
+                if thesis:preferred=thesis['symbol']
             symbols=[p['symbol'] for p in positions] or [preferred or candidates[(aid-1)%len(candidates)]] if candidates else []
             for symbol in symbols:
                 side='sell' if positions else 'buy'
@@ -349,11 +402,33 @@ class Worker:
         if kind=='openai_test':
             response=await self.ai.call('connection_test',[{'role':'user','content':'Antworte nur mit OK als Verbindungstest.'}])
             return {'response_id':response.id,'text':response.output_text}
+        if kind=='news_thesis':
+            from .news_agents import assess_news
+            return await assess_news(self.db,self.cfg,job['agent_id'],payload['symbol'])
         if kind=='backtest':
-            return await asyncio.to_thread(run_backtest,self.db,job['agent_id'],payload['strategy_id'],payload['symbol'])
+            strategy=self.db.one('SELECT spec FROM strategies WHERE id=? AND agent_id=?',(payload['strategy_id'],job['agent_id']))
+            if strategy and json.loads(strategy['spec'])['kind']=='event_driven':
+                await asyncio.to_thread(self.providers.company_news,payload['symbol'])
+                require_research()
+            try:
+                return await asyncio.to_thread(run_backtest,self.db,job['agent_id'],payload['strategy_id'],payload['symbol'])
+            except ValueError as exc:
+                if not str(exc).startswith(('Zu wenig Daten für getrennte','Historische Daten fehlen')):raise
+                require_research()
+                from .research import progress
+                progress(self.db,job['agent_id'],'backtest','Lädt ausreichende Historie für getrennte In-/Out-of-Sample-Tests')
+                strategy=self.db.one('SELECT spec FROM strategies WHERE id=? AND agent_id=?',(payload['strategy_id'],job['agent_id']))
+                if not strategy:raise ValueError('Strategie fehlt')
+                await asyncio.to_thread(self.providers.strategy_history,payload['symbol'],json.loads(strategy['spec']))
+                require_research()
+                return await asyncio.to_thread(run_backtest,self.db,job['agent_id'],payload['strategy_id'],payload['symbol'])
         if kind=='analysis':
             if not self.db.get('engine_enabled'):
                 raise BudgetError('KI-Engine pausiert')
+            from .news_agents import mandate
+            if mandate(self.db,job['agent_id'])['approach']=='news' and payload.get('symbol'):
+                await asyncio.to_thread(self.providers.company_news,payload['symbol'])
+                require_research()
             aid,result=await self.ai.analyze(job['agent_id'])
             agent=self.db.one('SELECT * FROM agents WHERE id=?',(job['agent_id'],))
             final_action='HOLD'

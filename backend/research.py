@@ -45,6 +45,8 @@ def research_roster(db):
         (SELECT MAX(version) FROM strategies x WHERE x.agent_id=a.id) strategy_version
         FROM agents a ORDER BY a.id""")
     for a in rows:
+        from .news_agents import mandate
+        a.update(mandate(db,a['id']))
         job=db.one("SELECT id,kind,status,payload,error,updated_at FROM jobs WHERE agent_id=? AND kind IN ('analysis','backtest') ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,updated_at DESC LIMIT 1",(a['id'],))
         a['job']=job
         if job:job['payload']=json.loads(job['payload'])
@@ -62,6 +64,8 @@ def research_roster(db):
 def agent_research(db,aid,offset=0):
     agent=db.one('SELECT id,name,department,specialty FROM agents WHERE id=?',(aid,))
     if not agent:raise ValueError('Agent fehlt')
+    from .news_agents import mandate
+    agent.update(mandate(db,aid))
     refs=db.all("""SELECT * FROM (
         SELECT id,'analysis' kind,created_at FROM analyses WHERE agent_id=?
         UNION ALL SELECT id,'backtest',created_at FROM backtests WHERE agent_id=?
@@ -87,7 +91,8 @@ def agent_research(db,aid,offset=0):
     current=db.one('SELECT id,version,spec,status,rationale,created_at FROM strategies WHERE agent_id=? ORDER BY version DESC LIMIT 1',(aid,))
     if current:current['spec']=json.loads(current['spec'])
     draft=db.one('SELECT received_at FROM research_drafts WHERE agent_id=?',(aid,))
-    return {'agent':agent,'window':research_window(),'jobs':jobs,'timeline':timeline,'counts':counts,'current_strategy':current,'deferred_analysis':draft,
+    theses=db.all('SELECT * FROM event_theses WHERE agent_id=? ORDER BY created_at DESC LIMIT 10',(aid,))
+    return {'agent':agent,'window':research_window(),'jobs':jobs,'timeline':timeline,'counts':counts,'current_strategy':current,'deferred_analysis':draft,'company_theses':theses,
             'offset':offset,'limit':10,'total':sum(counts.values()),'as_of':now()}
 
 

@@ -76,6 +76,14 @@ def evaluate_tx(db,c,agent_id,symbol,side='buy',at=None,expected_strategy=None):
                 valid=True
                 reason='Vordefinierte Schutz-/Tagesendebedingung erfüllt; frische Ausführungsdaten separat erforderlich'
                 return record(c,agent_id,symbol,side,sid,tf,valid,reason,observations,at)
+        mandate=c.execute('SELECT approach FROM agent_mandates WHERE agent_id=?',(agent_id,)).fetchone()
+        if mandate and mandate['approach']=='news' and spec.get('kind')!='event_driven':
+            raise ValueError('Nachrichtenagent wartet auf seine Ereignisstrategie; kein technischer Ersatzhandel')
+        if spec.get('kind')=='event_driven':
+            from .news_agents import event_signal
+            valid,reason,proof=event_signal(c,agent_id,symbol,side,position,spec,at)
+            observations.update(proof)
+            return record(c,agent_id,symbol,side,sid,tf,valid,reason,observations,at)
         if spec.get('requires_realtime',False):
             raise ValueError('Strategie benötigt Echtzeitdaten; 15-Minuten-Verzögerung ungeeignet')
         if (spec.get('requires_full_market',False) or agent['specialty']=='Mikrostruktur') and policy.get('feed','iex')!='sip':

@@ -166,12 +166,15 @@ class AI:
         require_research()
         agent=self.db.one('SELECT * FROM agents WHERE id=?',(agent_id,))
         if not agent or agent['paused']:raise ValueError('Agent pausiert/fehlt')
+        from .news_agents import mandate,NewsDecision,save_thesis
+        agent.update(mandate(self.db,agent_id))
+        decision_model=NewsDecision if agent['approach']=='news' else AgentDecision
         strategy=self.db.one('SELECT * FROM strategies WHERE agent_id=? ORDER BY version DESC LIMIT 1',(agent_id,))
         draft=self.db.one('SELECT * FROM research_drafts WHERE agent_id=?',(agent_id,))
         if draft:
             if draft['strategy_id']!=strategy['id']:raise ValueError('Zwischengespeicherte Analyse basiert auf einer anderen Strategie; manuelle Prüfung erforderlich')
             context=json.loads(draft['context']);saved=json.loads(draft['result'])
-            result=await self._generate_analysis(agent,strategy,context,agent_id,saved) if 'resume_messages' in saved else AgentDecision.model_validate(saved)
+            result=await self._generate_analysis(agent,strategy,context,agent_id,saved) if 'resume_messages' in saved else decision_model.model_validate(saved)
         else:
             progress(self.db,agent_id,'analysis','Liest Nachrichten, Berichte und Marktdaten')
             context=agent_context(self.db,agent_id)
@@ -187,6 +190,7 @@ class AI:
                 if result.proposed_strategy:
                     spec=validate_spec(result.proposed_strategy.model_dump())
                     c.execute('INSERT INTO strategies VALUES(?,?,?,?,?,?,?)',(uid(),agent_id,strategy['version']+1,dumps(spec),result.hypothesis,'candidate',now()))
+                if getattr(result,'event_thesis',None):save_thesis(self.db,agent_id,result.event_thesis,result.proposed_strategy.model_dump() if result.proposed_strategy else json.loads(strategy['spec']),c)
                 c.execute('DELETE FROM research_drafts WHERE agent_id=?',(agent_id,))
         except ResearchClosed:
             with self.db.tx() as c:
@@ -197,6 +201,8 @@ class AI:
         return aid,result
 
     async def _generate_analysis(self,agent,strategy,context,agent_id,resume=None):
+        from .news_agents import NewsDecision
+        decision_model=NewsDecision if agent.get('approach')=='news' else AgentDecision
         messages=[{'role':'user','content':dumps({'profile':agent,'strategy':strategy,
              'context':context,'task':'Entwickle eine prüfbare Hypothese. Prüfe Datenlücken und Alternativen. Alle Agenten dürfen gemeinsame Daten über read_fund_data abfragen. Wähle hold/research bei fehlender Evidenz. Wähle position_pct anhand deiner Strategie und Backtests innerhalb der effektiven Kontext-Limits und des verfügbaren virtuellen Kapitals; beachte Stops. Vorschläge als sichere DSL; kein Python ausführen.'})}]
         receipts=[]
@@ -209,10 +215,10 @@ class AI:
                     (agent_id,strategy['id'],dumps(context),dumps({'resume_messages':messages,'receipts':receipts,'turn':turn}),now()))
                 raise
             progress(self.db,agent_id,'analysis','Analysiert Hypothese und Strategie')
-            response=await self.call('agent',messages,agent_id,tools=[TOOLS[0]],schema=AgentDecision.model_json_schema())
+            response=await self.call('agent',messages,agent_id,tools=[TOOLS[0]],schema=decision_model.model_json_schema())
             calls=[x for x in response.output if x.type=='function_call']
             if not calls:
-                result=AgentDecision.model_validate_json(response.output_text)
+                result=decision_model.model_validate_json(response.output_text)
                 break
             messages.extend(response_inputs(response))
             for call in calls:
@@ -234,6 +240,10 @@ class AI:
 
 
 def agent_context(db,agent_id):
+    from .news_agents import mandate,relevant_news
+    assignment=db.one("SELECT payload FROM jobs WHERE agent_id=? AND kind='analysis' AND status='running' ORDER BY updated_at DESC LIMIT 1",(agent_id,))
+    assignment=json.loads(assignment['payload']) if assignment else {}
+    company=assignment.get('symbol') or db.get('agent-stock-'+str(agent_id))
     with db.tx() as c:
         agent=c.execute('SELECT * FROM agents WHERE id=?',(agent_id,)).fetchone()
         pid='fund' if agent['department']=='fund' else f'demo-{agent_id:03}' if agent['department']=='demo' else f'research-{agent_id:03}'
@@ -241,7 +251,10 @@ def agent_context(db,agent_id):
         from .ledger import effective_limits,cash_caps
         risk=effective_limits(c)
         caps=cash_caps(c,pid)
-    return dict(as_of=now(),clock=phase(db),portfolio=portfolio,
+    return dict(as_of=now(),clock=phase(db),portfolio=portfolio,individual_work=assignment,approach=mandate(db,agent_id),
+                company_research={'symbol':company,'news':relevant_news(db,company,12) if company else [],
+                    'documents':[{**r,'payload':r['payload'][:12000]} for r in db.all('SELECT * FROM documents WHERE symbol=? ORDER BY received_at DESC LIMIT 2',(company,))],
+                    'coverage':'Unternehmensmeldungen und vorhandene Originaldokumente; fehlende Primärberichte/Finanzzahlen nicht erfinden.'},
                 risk_limits=risk,fund_cash_limits=caps,paper_sizing_mode=db.get('paper_sizing_mode','capped'),
                 sizing_note='Strategie position_pct wird in Backtests und Paper-Sizing verwendet; kein Kredit, nur verfügbares virtuelles Kapital.',
                 trading_enabled=db.get('trading_enabled'),
@@ -260,7 +273,8 @@ def agent_context(db,agent_id):
                 tests=db.all('SELECT id,strategy_id,symbol,data_hash,created_at FROM backtests WHERE agent_id=? ORDER BY created_at DESC LIMIT 5',(agent_id,)),
                 data_coverage=db.all('SELECT name,status,detail FROM integrations'),
                 signal_decisions=signal_context(db,agent_id),
-                history=historical_excerpt(db,agent_id))
+                history=historical_excerpt(db,agent_id,company) if mandate(db,agent_id)['approach']=='technical' else
+                    {'status':'Ereignisforschung: Nachrichten, Unternehmensdokumente und separate Ereignisstudien statt technischer Indikatoren'})
 
 
 def signal_context(db,agent_id):
@@ -275,8 +289,8 @@ def signal_context(db,agent_id):
     return rows
 
 
-def historical_excerpt(db,agent_id):
-    symbolrow=db.one('SELECT symbol FROM bars GROUP BY symbol ORDER BY symbol LIMIT 1 OFFSET ?',(agent_id%10,))
+def historical_excerpt(db,agent_id,symbol=None):
+    symbolrow={'symbol':symbol} if symbol else db.one('SELECT symbol FROM bars GROUP BY symbol ORDER BY symbol LIMIT 1 OFFSET ?',(agent_id%10,))
     if not symbolrow:
         symbolrow=db.one('SELECT symbol FROM bars LIMIT 1')
     if not symbolrow:

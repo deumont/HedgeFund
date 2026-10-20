@@ -35,3 +35,21 @@ def select_stock(db,cfg,agent_id,symbol):
     rotate(db,cfg)
     from .worker import enqueue
     return enqueue(db,'prepare_stock',{'symbol':symbol},priority=4,dedupe='prepare-'+symbol+'-'+now()[:16])
+
+
+def research_symbols(db,cfg,aid,at,bucket=0,catalog=None,headlines=None):
+    """Per-agent company/news choices plus rotating coverage of the full catalog."""
+    catalog=catalog if catalog is not None else [r['symbol'] for r in db.all("SELECT symbol FROM assets WHERE tradable=1 AND asset_class='us_equity' ORDER BY symbol")]
+    if not catalog:return []
+    import json
+    from .news_agents import mandate,EVENTS
+    profile=mandate(db,aid);headlines=headlines if headlines is not None else db.all('SELECT headline,symbols FROM news ORDER BY published_at DESC LIMIT 300')
+    allowed=set(catalog)
+    event_terms=[word for terms in EVENTS.values() for word in terms]
+    mentioned=list(dict.fromkeys(s for r in headlines if profile['approach']!='news' or any(w in r['headline'].lower() for w in event_terms) for s in json.loads(r['symbols']) if s in allowed))
+    chosen=[];preferred=db.get('agent-stock-'+str(aid))
+    if preferred in catalog:chosen.append(preferred)
+    if mentioned:chosen.append(mentioned[(aid+bucket-1)%len(mentioned)])
+    cursor=(at.date().toordinal()*97+(aid-1)*131+bucket*17)%len(catalog)
+    chosen.extend(catalog[(cursor+i*37)%len(catalog)] for i in range(min(3,len(catalog))))
+    return list(dict.fromkeys(chosen))[:3]

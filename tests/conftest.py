@@ -25,6 +25,9 @@ def db(tmp_path):
     d=DB(tmp_path/'test.sqlite3')
     d.init()
     seed(d)
+    # Baseline ledger/signal fixtures explicitly exercise the technical cohort.
+    # News/political cohorts have separate event-signal and event-study tests.
+    with d.tx() as c:c.execute("UPDATE agent_mandates SET approach='technical'")
     with d.tx() as c:
         c.execute("INSERT INTO sessions VALUES(?,?,?,?)",('2026-10-20','2026-10-20T09:30:00-04:00','2026-10-20T16:00:00-04:00','test fixture'))
         c.execute("INSERT INTO fx VALUES(?,?,?,?)",('2026-10-20','1.10','TEST fixture',AT.isoformat()))
