@@ -81,6 +81,9 @@ Keine erfundenen Trades, Gewinne, Handlungen oder Gedankenprotokolle. Dokumentie
 prüfbare Entscheidungserklärungen, keine internen Denkprozesse. Modellgewichte werden nicht trainiert.
 Risikolimits und Paper-only-Modus können weder per Chat noch durch Agenten verändert werden.
 Administrative Maßnahmen nur als Vorschlag mit erforderlicher CEO-Bestätigung.
+Ausnahme: Der CEO hat tägliche Paper-Personalentscheidungen ausdrücklich delegiert.
+Nur der separate manager_daily-Auftrag darf belegte Tausche für frühestens morgen
+entscheiden; keine Risiko-, Budget-, Geld- oder Orderfreigabe ändern.
 Standard ist HOLD/NO TRADE. Kein Trade wegen verstrichener Zeit, Quoten, Aktivitätszielen
 oder langer Handelspause. Tage/Wochen ohne Einstieg sind zulässig. Nur vordefinierte
 Eintrittsbedingungen der gespeicherten Strategie können ein Signal erzeugen.
@@ -118,8 +121,8 @@ class AI:
         return rid,fx
 
     async def call(self,kind,messages,agent_id=None,tools=None,schema=None):
-        model=self.cfg.openai_manager_model if kind in ('manager','manager_review') else self.cfg.openai_model
-        limit=1100 if kind in ('manager','agent_report') else 1800 if kind=='manager_review' else 2400
+        model=self.cfg.openai_manager_model if kind in ('manager','manager_review','manager_daily') else self.cfg.openai_model
+        limit=3400 if kind=='manager_daily' else 1100 if kind in ('manager','agent_report') else 1800 if kind=='manager_review' else 2400
         params=dict(model=model,instructions=SYSTEM,input=messages,max_output_tokens=limit,
                     reasoning={'effort':'low'},service_tier='default',store=False,include=['reasoning.encrypted_content'])
         if tools:
@@ -223,11 +226,26 @@ def agent_context(db,agent_id):
                              'stream':db.one("SELECT name,status,detail FROM integrations WHERE name='news_stream'"),
                              'more':'read_data news: weitere Meldungen paginiert abrufen'},
                 memories=db.all('SELECT * FROM memories WHERE agent_id=? ORDER BY created_at DESC LIMIT 8',(agent_id,)),
+                previous_reports=db.all('SELECT report_date,content,created_at FROM agent_reports WHERE agent_id=? ORDER BY created_at DESC LIMIT 2',(agent_id,)),
+                manager_assessment=db.one('SELECT score,summary,created_at FROM manager_reviews WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(agent_id,)),
+                daily_manager=db.one('SELECT date,status,summary,decision_ids FROM daily_cycles ORDER BY date DESC LIMIT 1'),
                 recent_trades=db.all('SELECT * FROM fills WHERE agent_id=? ORDER BY created_at DESC LIMIT 10',(agent_id,)),
                 tests=db.all('SELECT id,strategy_id,symbol,data_hash,created_at FROM backtests WHERE agent_id=? ORDER BY created_at DESC LIMIT 5',(agent_id,)),
                 data_coverage=db.all('SELECT name,status,detail FROM integrations'),
-                signal_decisions=db.all('SELECT * FROM signal_decisions WHERE agent_id=? ORDER BY created_at DESC LIMIT 10',(agent_id,)),
+                signal_decisions=signal_context(db,agent_id),
                 history=historical_excerpt(db,agent_id))
+
+
+def signal_context(db,agent_id):
+    # Candle arrays repeated in every signal used to exhaust the next research call.
+    # Preserve exact indicators, policy, times and hashes; the full audit stays in DB.
+    rows=db.all('SELECT * FROM signal_decisions WHERE agent_id=? ORDER BY created_at DESC LIMIT 3',(agent_id,))
+    for row in rows:
+        proof=json.loads(row['observations'])
+        bars=proof.pop('bars',[])
+        proof['bars_count']=len(bars);proof['bars_omitted_from_prompt']=True
+        row['observations']=proof
+    return rows
 
 
 def historical_excerpt(db,agent_id):

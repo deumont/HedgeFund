@@ -58,3 +58,14 @@ nicht behaupten. Website ohne manuelle Trades/Uploads, Manager Office und Resear
 Lab. Bestehende Architektur 50/25/25 erhalten. Visuell wieder näher am ursprünglichen
 ATLAS-Dashboard, mit weniger Verwaltungsbedienung. Rechts im Trading Floor genau
 25 Fonds-Trader; Profile zeigen Tagesaktionen und eigene belegte Tagesberichte.
+
+Neuester CEO-Auftrag: Ab 07:30 Berlin wiederholte Vorbereitung mit Nachrichten,
+Berichten, Strategieverbesserungen und Backtests. Nach dem persönlichen Handelsende
+Eigenbewertungen aller 100 Agenten; danach delegierte tägliche Managerentscheidung
+über belegte Auf-/Abstiege oder Beibehalten. Automatische Tausche zwischen Nachbar-
+abteilungen dürfen frühestens am Folgetag vor Börsenöffnung wirksam werden und
+bewahren 50/25/25. Offene Positionen/Orders verschieben einen Wechsel. Keine
+erzwungenen Trades oder Rollenwechsel. Bei geschlossener Börse automatisch eine
+Research-/Review-Ansicht, dort Research Lab wieder sichtbar. Keine manuellen
+Orders/Uploads und kein Manager Office. Der tatsächliche Börsenkalender bestimmt
+die Dashboardumschaltung, nicht die persönliche Worker-Endzeit.

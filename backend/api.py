@@ -262,6 +262,17 @@ def create_app(cfg=None,db=None):
         with db.tx() as c:
             return [snapshot(c,x['id']) for x in c.execute("SELECT id FROM portfolios WHERE kind!='research'").fetchall()]
 
+    @app.get('/api/closeout')
+    def closeout():
+        from .daily import closeout_view
+        return closeout_view(db)
+
+    @app.get('/api/research')
+    def research(offset:int=0):
+        from .daily import research_view
+        if offset<0 or offset>1000000:raise HTTPException(400,'Ungültiger Seitenoffset')
+        return research_view(db,offset)
+
     @app.get('/api/portfolio/{pid}')
     def portfolio(pid:str):
         return {'portfolio':ledger.portfolio(pid),

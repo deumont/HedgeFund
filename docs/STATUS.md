@@ -1,5 +1,28 @@
 # Tatsächlicher Stand — 20.10.2026
 
+## Neue Tagesroutine und Research-Ansicht — 22 Uhr Berlin
+
+Abschlussprüfung: **166 Tests bestanden**, Produktionsbuild erfolgreich.
+Alle 100 neuen Eigenbewertungen und die anschließende Manager-Tagesentscheidung
+wurden im laufenden System tatsächlich gespeichert; keine nur simulierte Abnahme.
+
+Die bestehende Engine bereitet ab 07:30 Berlin stündlich Nachrichten, Berichte
+und Strategiehypothesen auf. Kandidatentests werden vor weiteren Analysen
+abgearbeitet. Keine Änderung der Signal-, Daten-, Zeit-, Paper- oder Kapitalgrenzen.
+
+Ein persistenter Tagesabschluss fordert Eigenbewertungen aller 100 Agenten an.
+Anschließend trifft der Manager delegierte Paper-Personalentscheidungen, entweder
+belegte Tausche zwischen benachbarten Abteilungen oder begründetes Beibehalten.
+Aktivierung frühestens am nächsten Morgen, nur ohne offene Positionen/Orders;
+50/25/25 bleibt erhalten. Gesperrte/unklare Modellaufgaben bleiben sichtbar offen.
+
+Bei geschlossener Börse zeigt die Startansicht automatisch Research Lab,
+Tagesberichte, Portfolio, Manageraktionen, individuelle Agenten und alle
+paginierten Strategietests mit vollständigen Ergebnissen. Der echte Börsenstatus
+bleibt unabhängig vom persönlichen Worker-Ende um 19 Uhr. Echte lokale API-
+Prüfung inklusive beider neuen geschützten Datenendpunkte und Testpagination
+erfolgreich. Weitere Details: [Agentenkonsole](AGENT_CONSOLE.md).
+
 ## Aktueller Abschlussstand — 22 Uhr Berlin
 
 152 automatisierte Tests bestanden; Frontend-Produktionsbuild, authentifizierter

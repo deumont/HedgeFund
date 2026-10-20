@@ -51,7 +51,8 @@ class Worker:
                         raise RuntimeError('Ein Worker läuft bereits')
             put(c,'worker_identity',{'pid':os.getpid(),'created':psutil.Process().create_time()})
             # Provider side effects never auto-retry on process death. Internal writes are transactional.
-            c.execute("UPDATE jobs SET status=CASE WHEN kind='broker_submit' THEN 'uncertain' ELSE 'pending' END,updated_at=? WHERE status='running' AND kind NOT IN ('agent_report','manager_review')",(now(),))
+            c.execute("UPDATE jobs SET status=CASE WHEN kind='broker_submit' THEN 'uncertain' ELSE 'pending' END,updated_at=? WHERE status='running' AND kind NOT IN ('agent_report','manager_review','manager_daily')",(now(),))
+            c.execute("UPDATE jobs SET priority=45 WHERE kind='backtest' AND status='pending' AND priority>=60")
             put(c,'worker_stop_requested',False)
         self.ledger.reconcile()
         self.db.event('worker','Hintergrund-Engine gestartet; dauerhafter Zustand geladen')
@@ -128,7 +129,7 @@ class Worker:
 
     def claim(self):
         with self.db.tx() as c:
-            row=c.execute("SELECT * FROM jobs WHERE status='pending' AND kind NOT IN ('agent_report','manager_review') AND available_at<=? ORDER BY priority,created_at LIMIT 1",(now(),)).fetchone()
+            row=c.execute("SELECT * FROM jobs WHERE status='pending' AND kind NOT IN ('agent_report','manager_review','manager_daily') AND available_at<=? ORDER BY priority,created_at LIMIT 1",(now(),)).fetchone()
             if row:
                 c.execute("UPDATE jobs SET status='running',attempts=attempts+1,updated_at=? WHERE id=?",(now(),row['id']))
                 return dict(row)|{'attempts':row['attempts']+1}
@@ -156,21 +157,21 @@ class Worker:
             enqueue(self.db,'assets',priority=3,dedupe='assets-'+day)
             enqueue(self.db,'news',priority=5,dedupe='news-'+stamp.isoformat()[:16])
             enqueue(self.db,'broker_reconcile',priority=3,dedupe='broker-'+stamp.isoformat()[:16])
-            if clock['trading']:
+            if clock['trading'] or clock['phase']=='preparing':
                 enqueue(self.db,'intraday',priority=4,dedupe='bars15-'+stamp.isoformat()[:16])
             if clock['phase']=='preparing':
                 for symbol in self.cfg.symbols:
                     enqueue(self.db,'historical',{'symbol':symbol},priority=30,dedupe='history-'+day+'-'+symbol)
         if self.cfg.openai_api_key and self.db.get('engine_enabled'):
             # Scheduled research is allowed; discretionary trading is exclusively signal-driven.
-            group='review' if clock['phase']=='review' else 'morning'
+            # Hourly premarket research rounds from 07:30; never a timer for orders.
+            group='review' if clock['phase']=='review' else 'morning-'+str(max(0,(local.hour*60+local.minute-450)//60))
             # Rotate research ordering across dates so a cost cap never permanently favors low IDs.
             rotation=local.date().toordinal()%100
             for a in self.db.all('SELECT * FROM agents WHERE paused=0 ORDER BY (id+?)%100',(rotation,)):
                 if clock['phase'] in ('preparing','closed','review','calendar_missing'):
                     enqueue(self.db,'analysis',agent_id=a['id'],priority=60,dedupe=f"analysis-{day}-{group}-{a['id']}")
-            if clock['phase']=='review':
-                enqueue(self.db,'daily_review',priority=70,dedupe='review-'+day)
+            # End-of-day reports and staffing belong to the durable management service.
 
     def monitor_signals(self,at=None):
         """No inactivity counters, no trade quota, no time-since-last-trade trigger."""
@@ -367,7 +368,7 @@ class Worker:
             if strategy['status']=='candidate' and self.cfg.symbols:
                 from .universe import eligible
                 symbol=result.symbol if eligible(self.db,result.symbol) else self.cfg.symbols[job['agent_id']%len(self.cfg.symbols)]
-                enqueue(self.db,'backtest',{'strategy_id':strategy['id'],'symbol':symbol},job['agent_id'],65,dedupe='test-'+strategy['id']+'-'+symbol)
+                enqueue(self.db,'backtest',{'strategy_id':strategy['id'],'symbol':symbol},job['agent_id'],45,dedupe='test-'+strategy['id']+'-'+symbol)
             return {'analysis_id':aid,'proposed_action':result.action,'final_action':final_action,'reason':final_reason,'order_id':order_id}
         if kind=='daily_review':
             scores=[evaluate(self.db,a['id']) for a in self.db.all('SELECT id FROM agents')]

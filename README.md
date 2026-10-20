@@ -103,6 +103,12 @@ Die aktuelle [Agentenkonsole](docs/AGENT_CONSOLE.md) verwendet GPT 6.1 Sol für
 Einzelagenten, echte Managerbewertungen von 0–10 und gespeicherte Eigenberichte.
 Der Trading Floor zeigt rechts die 25 Fonds-Trader. Keine manuellen Trades oder
 Uploads auf der Website; 50/25/25, Paper-only und 25-%-Agentengrenze bleiben erhalten.
+Bei geschlossener Börse wechselt die Startansicht automatisch zu Research Lab,
+Tagesberichten, Portfolio, Manageraktionen, Agentendetails und allen Strategietests.
+Ab 07:30 Berlin laufen wiederholte Vorbereitungsrunden. Nach Handelsende bewerten
+sich alle 100 Agenten selbst; danach entscheidet der Manager über belegte
+Auf-/Abstiege oder Beibehalten, wirksam frühestens am nächsten Morgen. Details
+und unveränderte Nachweis-/Ausführungsgrenzen stehen in der Agentenkonsole.
 
 Im freigegebenen Paper-Experimentiermodus wählen Strategien ihre Positionsanteile
 selbst (`position_pct`, gleicher Parameter im Backtest). Keine festen Eurobudgets;

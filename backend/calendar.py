@@ -14,6 +14,13 @@ def phase(db, at=None):
     record = db.one("SELECT * FROM sessions WHERE date=?", (day,))
     result = dict(local_at=local.isoformat(), date=day, opens_at=None, closes_at=None,
                   trading=False, liquidating=False, exchange_open=False, source="Alpaca calendar")
+    # Exchange state is independent of the personal 19:00 worker cutoff.
+    if record:
+        opens = datetime.fromisoformat(record['opens_at'])
+        closes = datetime.fromisoformat(record['closes_at'])
+        result |= dict(opens_at=opens.astimezone(BERLIN).isoformat(),
+                       closes_at=closes.astimezone(BERLIN).isoformat(), exchange_open=opens <= at < closes)
+    result['calendar_confirmed'] = bool(record or db.get('calendar_coverage', {}).get('start','9999') <= day <= db.get('calendar_coverage', {}).get('end','0000'))
     if local.time() >= time(19):
         return result | dict(phase="stopped", reason="Tagesende 19:00 Europe/Berlin")
     if local.time() < time(7, 30):

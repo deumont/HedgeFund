@@ -1,5 +1,44 @@
 # ATLAS Agentenkonsole — 20.10.2026
 
+## Neu: Tagesroutine und geschlossene Börse
+
+Ab 07:30 Europe/Berlin laufen stündliche Vorbereitungsanalysen bis Börsenöffnung.
+Agenten erhalten aktuelle Nachrichten, eigene Berichte, Managerbeurteilungen und
+die letzte Personalentscheidung. Kandidaten werden weiter über die sichere DSL
+und reproduzierbare Backtests geprüft. Die bestehende lokale Sitzung, Signale,
+geeignete Ausführungsdaten und 25-%-Kapitalgrenze bleiben Ordervoraussetzungen.
+Kandidatentests haben Vorrang vor der nächsten Analyse, damit die Forschungsqueue
+sie nicht verdrängt. Signalindikatoren, Zeitangaben und Datenhashes bleiben im
+Modellkontext; wiederholte vollständige Candle-Arrays bleiben im Audit statt den
+nächsten Modellaufruf durch übergroße Eingaben zu blockieren.
+
+Nach dem persönlichen Handelsende (18:30 Berlin, bei vorzeitigem Börsenschluss
+früher) erstellt jeder der 100 Agenten eine Eigenbewertung: tatsächliche Aktionen,
+Stärken, Schwächen und nächster Test. Ein dauerhafter Tagesabschluss wartet auf
+alle Belege. Danach entscheidet der Manager über Auf-/Abstiege oder ausdrücklich
+begründetes Beibehalten. Fehlende oder gesperrte Berichte bleiben sichtbar offen.
+Keine automatische Wiederholung unklar abgerechneter Modellanfragen.
+
+Für Research->Demo sind mindestens drei unterschiedliche positive OOS-Tests
+über mindestens zwei Symbole mit je fünf geschlossenen Simulationstrades nötig.
+Identische Wiederholungstests zählen einmal. Demo->Fonds verwendet die bestehenden
+Mindestnachweise von 30 Abschlüssen, 20 Handelstagen und 20 Tagesrenditen. Dies sind
+Zugangskriterien, keine Gewinnzusage oder tägliche Aktivitätsquote. Das Modell
+entscheidet innerhalb dieser Grenzen. Jede Beförderung tauscht mit einem Agenten
+der benachbarten Abteilung; die Besetzung bleibt 50/25/25. Aktivierung frühestens
+am Folgetag vor Börsenöffnung; offene Positionen/Orders verschieben den Wechsel.
+Nur diese täglichen Paper-Personalentscheidungen sind delegiert; Chatvorschläge
+zu anderen administrativen Änderungen benötigen weiterhin die bestehende Freigabe.
+
+Die Startansicht wechselt bei geschlossener Börse automatisch zu Research & Review:
+Research Lab, Tagesberichte, Portfolio, Manageraktionen, individuelle Profile und
+alle paginierten Strategietests inklusive Parametern und vollständigen Ergebnissen.
+Research Lab ist damit gemäß neuestem Auftrag außerhalb der Börsenzeit wieder
+vorhanden. Manuelle Orders, Uploads und Manager Office bleiben entfernt. Der
+tatsächliche bestätigte Alpaca-Börsenkalender ist unabhängig vom Worker-Ende um
+19 Uhr; ein fehlender Kalender wird nicht als bestätigter Börsenschluss ausgegeben.
+PC/API und das monatliche Budget bleiben Voraussetzung der Hintergrundarbeit.
+
 Die bestehende Handelsarchitektur bleibt erhalten: 50 Research-, 25 Demo- und
 25 Fonds-Agenten. Dashboard, Trading Floor, Portfolio, Agenten, Manager, Markt
 und Status bilden die lesende Oberfläche. Manager Office, Research Lab, manuelle

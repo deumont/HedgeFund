@@ -11,7 +11,7 @@ from .config import now
 from .db import uid,dumps
 from .providers import safe_error
 
-BASE_PATHS=['overview','agents','system','trading-floor','portfolios','portfolio/fund','chats','data/jobs',
+BASE_PATHS=['overview','agents','system','trading-floor','closeout','research','portfolios','portfolio/fund','chats','data/jobs',
             'data/news','data/strategies','data/orders_all','data/decisions','data/quotes','data/broker']
 DATASETS={'fund','agents','agent_detail','fills','orders','news','events','analyses','backtests','strategies',
           'decisions','evaluations','risk','usage','documents','quotes','bars','memories','agent_equity',
@@ -23,7 +23,7 @@ def allowed_path(method,path):
         return False
     parsed=urlsplit(path)
     params=parse_qsl(parsed.query,keep_blank_values=True)
-    if any(k not in ('agent_id','offset') or not v.isdigit() or int(v)>10000 for k,v in params):
+    if any(k not in ('agent_id','offset') or not v.isdigit() or int(v)>1000000 for k,v in params):
         return False
     clean=parsed.path
     if method=='GET':
