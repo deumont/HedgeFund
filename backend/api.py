@@ -84,6 +84,8 @@ def create_app(cfg=None,db=None):
         provider=Providers(db,cfg)
         news=asyncio.create_task(provider.news_stream())
         management=asyncio.create_task(ManagementService(db,cfg).run(stop))
+        from .equity_curve import run as curve_loop
+        curve=asyncio.create_task(curve_loop(db,stop))
         try:
             yield
         finally:
@@ -92,7 +94,8 @@ def create_app(cfg=None,db=None):
             cloud.cancel()
             news.cancel()
             management.cancel()
-            await asyncio.gather(cloud,news,management,return_exceptions=True)
+            curve.cancel()
+            await asyncio.gather(cloud,news,management,curve,return_exceptions=True)
     app=FastAPI(title='ATLAS Paper Fund',docs_url=None,redoc_url=None,openapi_url=None,lifespan=lifespan)
     app.state.db=db
     app.add_middleware(TrustedHostMiddleware,allowed_hosts=['127.0.0.1','localhost','testserver'])
@@ -175,6 +178,7 @@ def create_app(cfg=None,db=None):
 
     @app.get('/api/overview')
     def overview():
+        from .equity_curve import daily_points
         fund=ledger.portfolio('fund')
         day=datetime.now(timezone.utc).astimezone(BERLIN).replace(hour=0,minute=0,second=0,microsecond=0).astimezone(timezone.utc).isoformat()
         opening=db.one("SELECT equity_u FROM equity WHERE portfolio_id='fund' AND created_at<? ORDER BY created_at DESC LIMIT 1",(day,))
@@ -199,7 +203,7 @@ def create_app(cfg=None,db=None):
                 'heartbeat':heartbeat,'paper_only':True,'trading_enabled':db.get('trading_enabled'),
                 'risk_confirmed':db.get('risk_confirmed'),'kill_switch':db.get('kill_switch'),
                 'agent_counts':db.all('SELECT department,COUNT(*) count,SUM(paused) paused FROM agents GROUP BY department'),
-                'equity':db.all("SELECT * FROM (SELECT * FROM equity WHERE portfolio_id='fund' ORDER BY created_at DESC LIMIT 500) ORDER BY created_at"),
+                'equity':daily_points(db),
                 'events':db.all('SELECT * FROM events ORDER BY id DESC LIMIT 25'),
                 'news':db.all('SELECT * FROM news ORDER BY published_at DESC LIMIT 6'),
                 'integrations':db.all('SELECT * FROM integrations ORDER BY name'),

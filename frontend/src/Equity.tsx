@@ -7,10 +7,7 @@ const confirmed=(r:Row)=>r.valuation_complete!==0&&r.valuation_complete!==false
 export function Equity({rows,current,asOf}:{rows:Row[],current?:Row,asOf?:string}){
  const [hover,setHover]=useState<number|null>(null),gradient=useId().replace(/:/g,'')
  const session=sessionEquity(rows,current,asOf),raw=session.rows
- // Old incomplete records used entry-cost fallbacks and caused false sawtooth returns.
- // Keep the audit rows intact; connect reliable observations across gaps with a dashed line.
- const ordered:Row[]=[];let gap=false
- for(const row of raw){if(!confirmed(row)&&row.id!=='current'){gap=true;continue}ordered.push({...row,gapBefore:gap});gap=false}
+ const ordered:Row[]=raw.map((row,i)=>({...row,gapBefore:i>0&&Date.parse(row.created_at)-Date.parse(raw[i-1].created_at)>300000}))
  if(!ordered.length)return <div className="empty">Heute noch keine Vermögenswerte zwischen 15:30 und 18:30 Uhr gespeichert. Europe/Berlin.</div>
  const values=ordered.map(r=>r.equity_u/1e6),min=Math.min(...values),max=Math.max(...values)
  const span=Math.max(max-min,Math.abs(values[0])*.002,1),lo=(min+max-span)/2-span*.12,hi=(min+max+span)/2+span*.12
@@ -27,8 +24,9 @@ export function Equity({rows,current,asOf}:{rows:Row[],current?:Row,asOf?:string
  <polygon points={`${x(ordered[0])},205 ${points} ${x(ordered.at(-1)!)},205`} fill={`url(#${gradient})`}/>
  <line x1={x(ordered[0])} x2={x(ordered.at(-1)!)} y1={y(ordered[0])} y2={y(ordered[0])} stroke="#8495a5" strokeDasharray="2 6" opacity=".5"/>
  {ordered.slice(1).map((r,i)=><line key={r.id||i} x1={x(ordered[i])} y1={y(ordered[i])} x2={x(r)} y2={y(r)} stroke={color} strokeWidth="2.5" strokeDasharray={confirmed(r)&&confirmed(ordered[i])&&!r.gapBefore?undefined:'5 4'} opacity={confirmed(r)&&confirmed(ordered[i])&&!r.gapBefore?1:.65}/>) }
+ {ordered.map((r,i)=><circle key={r.id||i} cx={x(r)} cy={y(r)} r="2.5" fill={confirmed(r)?color:'#0e1821'} stroke={color} strokeWidth="1.4"><title>{stamp(r.created_at)} · {fmt(r.equity_u/1e6)} · erfasst {stamp(r.observed_at||r.created_at)} · {confirmed(r)?'bestätigt':'letzter verifizierter Kurs'}</title></circle>)}
  <line x1={x(focus)} x2={x(focus)} y1="30" y2="210" stroke="#8b9bad" opacity=".35"/><circle cx={x(focus)} cy={y(focus)} r="4" fill={color}/>
  {['15:30','16:30','17:30','18:30'].map((label,i)=><text key={label} x={85+i*535/3} y="240" fill="#8b9bad" fontSize="14" textAnchor={i===0?'start':i===3?'end':'middle'}>{label}</text>)}</svg>
- <div className="chart-inspection"><span>{stamp(focus.created_at)} · {confirmed(focus)?'bestätigt':'unvollständig bewertet'}</span><b className={change>0?'positive':change<0?'negative':''}>{change>0?'+':''}{fmt(change)} seit erstem Tageswert</b></div>
- {missing>0&&<p className="chart-warning">Gestrichelt: Verbindung über Bewertungslücken. Der aktuelle Schätzwert nutzt letzte verfügbare Kurse; Zwischenwerte sind nicht bestätigt.</p>}</div>
+ <div className="chart-inspection"><span>{stamp(focus.created_at)} · {confirmed(focus)?'bestätigt':'Schätzwert'} · erfasst {stamp(focus.observed_at||focus.created_at)}</span><b className={change>0?'positive':change<0?'negative':''}>{change>0?'+':''}{fmt(change)} seit erstem Tageswert</b></div>
+ <p className="chart-warning">Ein gespeicherter Festpunkt je fünf Minuten. Fehlende Messungen bleiben Lücken.{missing>0?' Gestrichelt: Schätzwerte mit letzten verifizierten Kursen; keine aktuellen Ausführungskurse.':''}</p></div>
 }

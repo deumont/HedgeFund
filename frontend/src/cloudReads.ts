@@ -1,4 +1,4 @@
-type Snapshot={missing?:boolean,etag?:string,payload?:any,captured_at?:string,heartbeat?:string}
+type Snapshot={missing?:boolean,etag?:string,payload?:any,captured_at?:string,heartbeat?:string,transport_offline?:boolean}
 type CommandResult={status:string,result?:any,error?:string}
 
 // Resume the same read after a timeout; polling must not fill the queue with
@@ -28,8 +28,8 @@ export function createReadCommands(submit:(id:string,path:string)=>Promise<void>
  }
 }
 
-export function createSnapshotReader(read:(path:string,etag:string)=>Promise<Snapshot>,refresh:(path:string)=>Promise<any>,clock=()=>Date.now()){
- const cache=new Map<string,Snapshot>(),running=new Map<string,Promise<any>>()
+export function createSnapshotReader(read:(path:string,etag:string)=>Promise<Snapshot>,refresh:(path:string)=>Promise<any>,clock=()=>Date.now(),networkFailure=(error:any)=>error?.code==='network_unavailable'||/failed to fetch|fetch failed|load failed|networkerror/i.test(error?.message||String(error))){
+ const cache=new Map<string,Snapshot>(),running=new Map<string,Promise<any>>(),reading=new Map<string,Promise<Snapshot>>()
  let generation=0
  function update(path:string){
   const active=running.get(path);if(active)return active
@@ -40,11 +40,11 @@ export function createSnapshotReader(read:(path:string,etag:string)=>Promise<Sna
   }).finally(()=>{if(running.get(path)===promise)running.delete(path)})
   running.set(path,promise);return promise
  }
- return {
-  clear(){generation++;cache.clear();running.clear()},
-  async get(path:string):Promise<Snapshot>{
+ async function load(path:string):Promise<Snapshot>{
    const old=cache.get(path),started=generation
-   const data=await read(path,old?.etag||'')
+   let data:Snapshot
+   try{data=await read(path,old?.etag||'')}
+   catch(error){if(old?.payload!==undefined&&networkFailure(error))return {...old,transport_offline:true};throw error}
    if(data.missing){const payload=await update(path);return {payload}}
    const payload=data.payload??old?.payload
    if(payload===undefined)throw new Error('Cloud-Snapshot fehlt')
@@ -57,6 +57,13 @@ export function createSnapshotReader(read:(path:string,etag:string)=>Promise<Sna
     void update(path).catch(()=>{})
    }
    return snapshot
+ }
+ return {
+  clear(){generation++;cache.clear();running.clear();reading.clear()},
+  get(path:string):Promise<Snapshot>{
+   const active=reading.get(path);if(active)return active
+   const promise=load(path).finally(()=>{if(reading.get(path)===promise)reading.delete(path)})
+   reading.set(path,promise);return promise
   }
  }
 }

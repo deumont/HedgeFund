@@ -161,3 +161,12 @@ agent profile paths when projecting fields; preserve history/career and day_stat
 Render existing snapshots immediately, refresh stale views in the background, and
 deduplicate/resume the same pending read across UI polls. Never automatically replay
 mutations or bypass local trading/authentication gates to fix console loading.
+
+Latest CEO request: Fix repeated "Failed to fetch" errors and persist a fixed
+wealth-curve point every five minutes in today's 15:30–18:30 Berlin window.
+Network recovery must preserve dated cached views, retry only safe reads and
+clear the connection notice on recovery. Never retry mutations automatically or
+serve private cached data after an authorization failure. Store immutable curve
+samples independently of the risk ledger; show actual observation times and label
+last verified marks as estimates. Never use entry-cost fallbacks as observations,
+invent missing samples or replace saved points with a continuously moving live value.

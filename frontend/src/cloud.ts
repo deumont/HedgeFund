@@ -2,13 +2,14 @@ import {createClient} from '@supabase/supabase-js'
 import {recoveryIntent,requestReset,verifyRecovery,updateRecovery,recoveryMessage} from './authRecovery'
 import {loginError,requestConfirmation} from './authConfirmation'
 import {createReadCommands,createSnapshotReader} from './cloudReads'
+import {fetchWithPolicy,isNetworkFailure} from './transport'
 
 const env=import.meta.env
 export const cloudMode= !['127.0.0.1','localhost'].includes(location.hostname)&&Boolean(env.VITE_SUPABASE_URL&&env.VITE_SUPABASE_PUBLISHABLE_KEY)
 const initialRecovery=recoveryIntent(location.href)
 let recovering=cloudMode&&(initialRecovery.requested||initialRecovery.invalid)
 const recoveryListeners=new Set<(active:boolean)=>void>()
-const supabase=cloudMode?createClient(env.VITE_SUPABASE_URL,env.VITE_SUPABASE_PUBLISHABLE_KEY):null
+const supabase=cloudMode?createClient(env.VITE_SUPABASE_URL,env.VITE_SUPABASE_PUBLISHABLE_KEY,{global:{fetch:fetchWithPolicy}}):null
 const readCommand=createReadCommands(async(id,path)=>{
  const {error}=await supabase!.rpc('atlas_submit_command',{p_id:id,p_method:'GET',p_path:path,p_body:{}})
  if(error)throw new Error(error.message)
@@ -21,7 +22,7 @@ const snapshots=createSnapshotReader(async(path,etag)=>{
  const {data,error}=await supabase!.rpc('atlas_read_snapshot',{p_path:path,p_etag:etag})
  if(error)throw new Error(error.message)
  return data
-},readCommand)
+},readCommand,()=>Date.now(),isNetworkFailure)
 export let cloudCapturedAt:string|null=null
 supabase?.auth.onAuthStateChange(event=>{if(event==='PASSWORD_RECOVERY'){recovering=true;recoveryListeners.forEach(fn=>fn(true))}})
 export const isRecovering=()=>recovering
@@ -78,13 +79,18 @@ export async function cloudApi(rawPath:string,body?:any):Promise<any>{
   const {error}=await supabase.auth.signOut();if(error)throw new Error(error.message)
   snapshots.clear();return {authenticated:false}
  }
- if(body!==undefined)return command(path,'POST',body)
+ if(body!==undefined){
+  try{return await command(path,'POST',body)}catch(error){
+   if(isNetworkFailure(error))throw new Error('Verbindung unterbrochen; die Bestätigung des Auftrags fehlt. Nicht erneut senden, bevor der gespeicherte Status geprüft wurde.')
+   throw error
+  }
+ }
  const data=await snapshots.get(path),payload=data.payload
  if(path==='overview'){
   cloudCapturedAt=data.captured_at??null
   const fresh=data.heartbeat&&Date.now()-Date.parse(data.heartbeat)<90000
   return {...payload,worker_online:Boolean(fresh&&payload.worker_online),active_traders:fresh?payload.active_traders:0,
-   cloud:{captured_at:data.captured_at,engine_connected:Boolean(fresh)}}
+   cloud:{captured_at:data.captured_at,engine_connected:Boolean(fresh),transport_offline:Boolean(data.transport_offline)}}
  }
  return payload
 }

@@ -22,7 +22,7 @@ test('fixed Berlin window follows summer and winter time including DST day',()=>
 test('shows only current-day observations inside 15:30 through 18:30',()=>{
  const rows=['2026-10-20T14:00Z','2026-10-21T13:29:59Z','2026-10-21T13:30Z','2026-10-21T16:30Z','2026-10-21T16:30:01Z'].map(x=>point(x))
  const result=sessionEquity(rows,undefined,undefined,new Date('2026-10-21T18:00Z'))
- assert.deepEqual(result.rows.map(r=>r.created_at),['2026-10-21T13:30Z','2026-10-21T16:30Z'])
+ assert.deepEqual(result.rows.map(r=>r.created_at),['2026-10-21T13:30:00.000Z','2026-10-21T16:30:00.000Z'])
  assert.equal(result.end-result.start,3*60*60*1000)
 })
 
@@ -40,12 +40,22 @@ test('empty before open and after Berlin midnight, including cached previous day
  assert.equal(next.rows.length,0)
 })
 
-test('rejects future and malformed values and replaces duplicate timestamp with current point',()=>{
+test('rejects future and malformed values and never replaces a fixed point with live value',()=>{
  const rows=[point('2026-10-21T15:00Z'),point('invalid'),point('2026-10-21T14:00Z'),point('2026-10-21T13:50Z',NaN)]
  const result=sessionEquity(rows,{equity_eur:2999,valuation_complete:false},'2026-10-21T14:00Z',new Date('2026-10-21T14:10Z'))
  assert.equal(result.rows.length,1)
- assert.equal(result.rows[0].equity_u,2999000000)
- assert.equal(result.rows[0].valuation_complete,false)
+ assert.equal(result.rows[0].equity_u,3000000000)
+ assert.equal(result.rows[0].valuation_complete,1)
+})
+
+test('one fixed point per five-minute slot, without interpolating missing slots',()=>{
+ const rows=[point('2026-10-21T13:30:03Z',3000000000),point('2026-10-21T13:31:00Z',3100000000),point('2026-10-21T13:35:02Z',3020000000),point('2026-10-21T13:45:02Z',3030000000)]
+ const first=sessionEquity(rows,{equity_eur:9999},'2026-10-21T13:46Z',new Date('2026-10-21T13:46Z'))
+ assert.deepEqual(first.rows.map(r=>r.created_at),['2026-10-21T13:30:00.000Z','2026-10-21T13:35:00.000Z','2026-10-21T13:45:00.000Z'])
+ assert.equal(first.rows[0].equity_u,3000000000)
+ assert.equal(first.rows[0].observed_at,'2026-10-21T13:30:03Z')
+ const later=sessionEquity(rows,{equity_eur:1},'2026-10-21T13:49Z',new Date('2026-10-21T13:49Z'))
+ assert.deepEqual(later.rows,first.rows)
 })
 
 test('translates unconfirmed login errors and preserves actionable code',()=>{

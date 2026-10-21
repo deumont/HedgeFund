@@ -9,15 +9,19 @@ export function equityWindow(now=new Date()){
          start:Date.UTC(d.year,d.month-1,d.day,15,30)-offset,end:Date.UTC(d.year,d.month-1,d.day,18,30)-offset}
 }
 
-export function sessionEquity(rows:Row[],current?:Row,asOf?:string,now=new Date()){
+export function sessionEquity(rows:Row[],_current?:Row,_asOf?:string,now=new Date()){
  const window=equityWindow(now),until=Math.min(window.end,now.getTime())
  const inWindow=(stamp:string)=>Number.isFinite(Date.parse(stamp))&&Date.parse(stamp)>=window.start&&Date.parse(stamp)<=until
  const points=new Map<number,Row>()
  for(const row of rows){
-  if(row.equity_u!=null&&Number.isFinite(Number(row.equity_u))&&inWindow(row.created_at))points.set(Date.parse(row.created_at),row)
- }
- if(current?.equity_eur!=null&&Number.isFinite(Number(current.equity_eur))&&asOf&&inWindow(asOf)){
-  points.set(Date.parse(asOf),{id:'current',equity_u:Number(current.equity_eur)*1e6,created_at:asOf,valuation_complete:current.valuation_complete})
+  if(row.equity_u!=null&&Number.isFinite(Number(row.equity_u))&&inWindow(row.created_at)){
+   const observed=Date.parse(row.observed_at||row.created_at)
+   if(!Number.isFinite(observed)||observed<window.start||observed>until)continue
+   const slot=window.start+Math.floor((Date.parse(row.created_at)-window.start)/300000)*300000
+   // First recorded value for the five-minute slot wins. Never append a live
+   // portfolio estimate between slots or move a saved point on a UI refresh.
+   if(!points.has(slot))points.set(slot,{...row,created_at:new Date(slot).toISOString(),observed_at:row.observed_at||row.created_at})
+  }
  }
  return {...window,rows:[...points.values()].sort((a,b)=>Date.parse(a.created_at)-Date.parse(b.created_at))}
 }

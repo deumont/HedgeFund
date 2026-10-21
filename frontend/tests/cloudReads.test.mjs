@@ -50,3 +50,18 @@ test('expired reads fail explicitly and a later request may create a new read',a
  await assert.rejects(load('calendar'),/Abgelaufen/)
  assert.equal(submitted,2)
 })
+
+test('temporary network failure keeps dated cached data and recovers on next read',async()=>{
+ let calls=0
+ const reader=createSnapshotReader(async()=>{calls++;if(calls===2)throw new TypeError('Failed to fetch');return {...stale,heartbeat:undefined,payload:{value:calls}}},async()=>{},()=>at)
+ assert.equal((await reader.get('overview')).payload.value,1)
+ const offline=await reader.get('overview')
+ assert.equal(offline.payload.value,1);assert.equal(offline.captured_at,stale.captured_at);assert.equal(offline.transport_offline,true)
+ const restored=await reader.get('overview');assert.equal(restored.payload.value,3);assert.equal(restored.transport_offline,undefined)
+})
+test('authorization failures never fall back to private cached snapshots',async()=>{
+ let calls=0
+ const reader=createSnapshotReader(async()=>{if(calls++)throw Error('Access denied');return stale},async()=>{},()=>at)
+ await reader.get('overview');await assert.rejects(reader.get('overview'),/Access denied/)
+ reader.clear();await assert.rejects(reader.get('overview'),/Access denied/)
+})

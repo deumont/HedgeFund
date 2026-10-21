@@ -62,6 +62,9 @@ CREATE TABLE IF NOT EXISTS ledger(
 CREATE TABLE IF NOT EXISTS equity(
  id TEXT PRIMARY KEY,portfolio_id TEXT NOT NULL,equity_u INTEGER NOT NULL,cash_u INTEGER NOT NULL,
  unrealized_u INTEGER NOT NULL,valuation_complete INTEGER NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS fund_curve_points(
+ slot_at TEXT PRIMARY KEY,observed_at TEXT NOT NULL,equity_u INTEGER NOT NULL,cash_u INTEGER NOT NULL,
+ unrealized_u INTEGER NOT NULL,valuation_complete INTEGER NOT NULL,sample_source TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS news(
  id TEXT PRIMARY KEY,source TEXT NOT NULL,headline TEXT NOT NULL,summary TEXT NOT NULL,
  url TEXT NOT NULL,symbols TEXT NOT NULL,published_at TEXT NOT NULL,received_at TEXT NOT NULL,

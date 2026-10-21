@@ -1,3 +1,4 @@
+import {errorMessage} from './transport'
 import {useEffect,useState} from 'react'
 import type {ReactNode} from 'react'
 import {cloudMode} from './cloud'
@@ -9,7 +10,7 @@ const role=(s:string)=>({research:'Forschung',demo:'Demo',fund:'Fonds'}[s]||s)
 const stamp=(s:string)=>s?new Date(s).toLocaleString('de-DE',{timeZone:'Europe/Berlin',dateStyle:'medium',timeStyle:'short'}):'Aktuell'
 function Pnl({value}:{value:any}){return <span className={value>0?'positive':value<0?'negative':'muted'}>{value>0?'+':''}{money(value)}</span>}
 function Box({title,sub,children}:{title:string,sub?:string,children:ReactNode}){return <section className="panel"><div className="panel-head"><div><h3>{title}</h3><span>{sub}</span></div></div>{children}</section>}
-function useHistory(api:Api,path:string){const[data,setData]=useState<Row|null>(null),[error,setError]=useState('');useEffect(()=>{let disposed=false,busy=false;setData(null);const load=async()=>{if(busy)return;busy=true;try{const r=await api(path);if(!disposed){setData(r);setError('')}}catch(e){if(!disposed)setError((e as Error).message)}finally{busy=false}};load();const t=setInterval(load,cloudMode?60000:30000);return()=>{disposed=true;clearInterval(t)}},[api,path]);return {data,error}}
+function useHistory(api:Api,path:string){const[data,setData]=useState<Row|null>(null),[error,setError]=useState('');useEffect(()=>{let disposed=false,busy=false;setData(null);const load=async()=>{if(busy)return;busy=true;try{const r=await api(path);if(!disposed){setData(r);setError('')}}catch(e){if(!disposed)setError(errorMessage(e))}finally{busy=false}};load();const t=setInterval(load,cloudMode?60000:30000);return()=>{disposed=true;clearInterval(t)}},[api,path]);return {data,error}}
 export function PerformanceCalendar({api,openAgent}:{api:Api,openAgent:(id:number,day:string)=>void}){
  const[month,setMonth]=useState(berlinToday().slice(0,7)),[day,setDay]=useState(berlinToday()),{data,error}=useHistory(api,`calendar?month=${month}`)
  const selected=data?.days.find((d:Row)=>d.date===day),offset=(new Date(`${month}-01T12:00:00Z`).getUTCDay()+6)%7
