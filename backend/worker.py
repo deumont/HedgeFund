@@ -221,7 +221,8 @@ class Worker:
         self.research_bucket=(day,bucket)
 
     def monitor_signals(self,at=None):
-        """No inactivity counters, no trade quota, no time-since-last-trade trigger."""
+        """Pursue daily entry objectives without weakening independent signal gates."""
+        at=at or datetime.now(timezone.utc)
         clock=phase(self.db,at)
         if not clock['trading']:
             return
@@ -264,15 +265,27 @@ class Worker:
                 if thesis:preferred=thesis['symbol']
             owned={p['symbol'] for p in positions}
             candidate=preferred or (candidates[(aid-1)%len(candidates)] if candidates else None)
-            symbols=list(dict.fromkeys([p['symbol'] for p in positions]+([candidate] if candidate else [])))
+            from .daily_target import candidates as entry_candidates,record_search,progress
+            target=progress(self.db,aid,at=at)
+            entries=entry_candidates(self.db,self.cfg,aid,at,candidate) if target['applies'] and target['new_positions']<1 else ([candidate] if candidate else [])
+            symbols=list(dict.fromkeys([p['symbol'] for p in positions]+entries))
+            searched=[];valid_entries=0
             for symbol in symbols:
                 side='sell' if symbol in owned else 'buy'
                 decision=self.signals.evaluate(aid,symbol,side,at)
+                if side=='buy':searched.append(symbol)
                 if decision.valid:
+                    if side=='buy':
+                        valid_entries+=1
+                        if self.cfg.has_alpaca:
+                            # Alternative candidates may lack a subscribed quote.
+                            enqueue(self.db,'prepare_stock',{'symbol':symbol},priority=4,dedupe='entry-data-'+symbol+'-'+at.isoformat()[:16])
                     self.execute_signal(aid,symbol,side,decision,at)
+                    if side=='buy' and progress(self.db,aid,at=at)['new_positions']>=1:break
                 elif symbol in owned and mandate(self.db,aid)['approach']=='news':
                     addition=self.signals.evaluate(aid,symbol,'buy',at)
                     if addition.valid:self.execute_signal(aid,symbol,'buy',addition,at)
+            if target['applies'] and target['new_positions']<1:record_search(self.db,aid,at,searched,valid_entries)
 
     def execute_signal(self,aid,symbol,side,decision,at=None):
         from .execution import plan_order

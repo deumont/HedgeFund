@@ -8,6 +8,7 @@ from .config import now
 from .db import dumps,uid,event
 from .reporting import day_evidence,evidence_hash,queue_report
 from .models import agent_model
+from .daily_target import manager_evidence
 from .decision_quality import RUBRIC
 
 
@@ -109,6 +110,7 @@ def staffing_facts(db,cycle,allow_missing=False):
         from .history import performance_history
         history=performance_history(db,a['id'],day)
         facts.append({**a,'promotion_ready':promotion_ready(db,a),'report_id':report['id'] if report else None,'self_review':report['content'] if report else 'Eigenbericht noch nicht verfügbar; keine Leistung daraus ableiten.',
+            'daily_entry_target':manager_evidence(db,a['id'],day),
             'manager_score':review['score'] if review else None,
             'manager_reason':review['summary'] if review else None,'execution_eligible':a['department']!='research',
             'decision_quality':quality,'past_performance':history,
@@ -126,6 +128,10 @@ def fallback_pair(db,facts,day):
         # A short lucky P&L run is never a tie breaker for staffing.
         old=[r['score'] for r in f.get('past_performance',{}).get('recent_reviews',[])]
         sustained=sum(old)/len(old) if old else f['manager_score'] if f['manager_score'] is not None else 5
+        target=f.get('daily_entry_target',{})
+        # A justified absence of an executable signal is never a forced-buy trigger.
+        # Lack of documented initiative after a full session affects staffing.
+        if target.get('exception_requires_manager_review') and not target.get('documented_search'):sustained-=1
         return (sustained,f['manager_score'] if f['manager_score'] is not None else 5,bool(f['promotion_ready']))
     for lower,upper in [('demo','fund'),('research','demo')]:
         ups=sorted((f for f in candidates if f['department']==lower),key=lambda f:(score(f),-(f['id']-datetime.fromisoformat(day).date().toordinal())%100),reverse=True)
@@ -151,6 +157,7 @@ async def decide_daily(db,cfg,day):
         history=f['past_performance']
         compact.append({k:f.get(k) for k in ('id','department','approach','promotion_ready','report_id','manager_score','execution_eligible')}|
             {'self_review':f['self_review'][:120],'manager_reason':(f['manager_reason'] or '')[:120],
+             'daily_entry_target':{k:f.get('daily_entry_target',{}).get(k) for k in ('new_positions','status','documented_search','signal_obstacles','execution_obstacles')},
              'history':{'roles':[{k:r[k] for k in ('department','closed_trades','realized_eur','trading_days')} for r in history['roles']],
                         'review_scores':[r['score'] for r in history['recent_reviews']],
                         'last_roles':[r['department'] for r in history['career']['periods'][-3:]],

@@ -166,6 +166,7 @@ def save_thesis(db,aid,thesis,spec=None,c=None):
 
 
 async def assess_news(db,cfg,aid,symbol):
+    from .daily_target import manager_evidence
     from .intelligence import AI
     from .calendar import phase
     if not phase(db)['trading']:return {'status':'outside_session'}
@@ -179,6 +180,7 @@ async def assess_news(db,cfg,aid,symbol):
     if not news or not any(symbol in json.loads(n['symbols']) for n in news):
         return {'status':'background_only_no_fresh_catalyst','research_id':web.get('id')}
     response=await AI(db,cfg).call('news_trade',[{'role':'user','content':dumps({'profile':profile,'symbol':symbol,'news':news,
+        'daily_entry_target':manager_evidence(db,aid),
         'web_background':research_context(db,aid),
         'positions':db.all('SELECT symbol,qty,avg_usd FROM positions WHERE agent_id=?',(aid,)),
         'management_policy':'Wähle enter/add/hold/reduce/exit nach aktuellen geprüften Informationen. Länger laufen lassen ist zulässig; kein fester Zeitablauf erzwingt einen Ausstieg. Für enter/add Zielanteil target_position_pct bis 0.25 nennen, bei reduce reduce_fraction nennen. Bestehende Gesamtpositionen und Reservierungen bleiben zusammen unter 25% je Agent. Politische Posts/Trump nur aus belegten Quellen, Originalzeitpunkt und Unternehmensbezug prüfen, Gerücht von Fakt trennen; verspätete Kurse erlauben keine sofortige Echtzeit-Reaktionsstrategie.',

@@ -123,6 +123,10 @@ def evaluate_tx(db,c,agent_id,symbol,side='buy',at=None,expected_strategy=None):
             closed.append(row)
         if len(closed)<=spec['lookback']:
             raise ValueError('Zu wenig abgeschlossene, tatsächlich verfügbare Bars')
+        # Only the bars actually consumed by this decision must be contiguous.
+        # An older gap outside that window must not permanently disable a trader.
+        needed=spec['lookback']+1 if side=='buy' else max(spec['lookback']+1,spec['holding_bars']+1)
+        closed=closed[-needed:]
         for previous,current in zip(closed,closed[1:]):
             before=datetime.fromisoformat(previous['time'])
             after=datetime.fromisoformat(current['time'])

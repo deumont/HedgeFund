@@ -9,6 +9,7 @@ from .config import now
 from .db import dumps,uid
 from .models import agent_model
 from .decision_quality import RUBRIC,quality_evidence,compact_quality
+from .daily_target import manager_evidence
 
 
 class Narrative(BaseModel):
@@ -77,7 +78,9 @@ def day_evidence(db,aid,day=None):
     for r in career(db,aid)['changes']:
         if start<=r['at']<end:actions.append({'id':r['decision_id'],'kind':'career','time':r['at'],'reason':r['from']+' → '+r['to']+': '+r['reason']})
     actions.sort(key=lambda r:r['time'],reverse=True)
+    from .daily_target import manager_evidence
     return {'date':day,'profile':agent,'execution_eligible':agent['department']!='research',
+            'daily_entry_target':manager_evidence(db,aid,day),
             'role_note':'Forschungsagent ohne Orderberechtigung; Recherche, Tests und Lernen sind seine Aufgabe.' if agent['department']=='research' else 'Paper-Trader: belegte Entscheidungen und tatsächliche Ausführung bewerten.',
             'market_data_policy':db.get('market_data_policy'),'trade_count':len(trades),'analysis_count':len(analyses),'backtest_count':len(tests),
             'realized_eur':sum(r['realized_u'] for r in trades)/1e6,
@@ -152,6 +155,7 @@ async def review_agents(db,cfg,ids):
         metrics=evaluation['metrics']
         from .history import performance_history,compact_history
         evidence.append({'profile':profile,'state':states[aid],'decision_quality':compact_quality(quality_evidence(db,aid)),
+            'daily_entry_target':manager_evidence(db,aid),
             'past_performance':compact_history(performance_history(db,aid)),
             'metrics':{k:metrics.get(k) for k in ('closed_trades','days','eligible','research_tests','latest_research_oos','evidence_progress')},
             'day':{k:v for k,v in day_evidence(db,aid).items() if k in ('date','trade_count','analysis_count','backtest_count')}})

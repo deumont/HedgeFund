@@ -34,6 +34,7 @@ RISK_DEFAULTS = dict(max_position_pct=0.08, max_agent_pct=0.08, max_exposure_pct
 
 
 def seed(db):
+    from .daily_target import POLICY
     with db.tx() as c:
         for i in range(1, 101):
             domain, hypotheses, evidence = DOMAINS[(i - 1) // 5]
@@ -63,6 +64,7 @@ def seed(db):
             c.execute("INSERT OR IGNORE INTO meta VALUES(?,?)", (key, dumps(value)))
         c.execute("INSERT OR IGNORE INTO meta VALUES('market_data_policy',?)",
                   (dumps({'delay_minutes':15,'feed':'iex','min_timeframe_minutes':15}),))
+        c.execute("INSERT OR IGNORE INTO meta VALUES('daily_entry_policy',?)",(dumps(POLICY),))
         # In-place policy migration: preserve identities, roles, portfolios and prior versions.
         import json
         for row in c.execute('SELECT id,spec FROM strategies').fetchall():

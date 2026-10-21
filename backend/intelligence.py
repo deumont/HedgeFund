@@ -277,6 +277,7 @@ class AI:
 
 
 def agent_context(db,agent_id):
+    from .daily_target import manager_evidence
     from .news_agents import mandate,relevant_news
     assignment=db.one("SELECT payload FROM jobs WHERE agent_id=? AND kind='analysis' AND status='running' ORDER BY updated_at DESC LIMIT 1",(agent_id,))
     assignment=json.loads(assignment['payload']) if assignment else {}
@@ -290,7 +291,7 @@ def agent_context(db,agent_id):
         caps=cash_caps(c,pid)
     from .web_research import research_context
     from .history import performance_history,compact_history
-    return dict(as_of=now(),clock=phase(db),portfolio=portfolio,individual_work=assignment,approach=mandate(db,agent_id),
+    return dict(as_of=now(),clock=phase(db),portfolio=portfolio,individual_work=assignment,approach=mandate(db,agent_id),daily_entry_target=manager_evidence(db,agent_id),
                 execution_eligible=agent['department']!='research',
                 role_note='Forschung kann keine Orders platzieren; Leistung nach Recherche und Tests beurteilen.' if agent['department']=='research' else 'Ausschließlich Paper-Ausführung mit unabhängig geprüften Signalen.',
                 public_web_research=research_context(db,agent_id),

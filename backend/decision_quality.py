@@ -1,11 +1,13 @@
 """Manager evidence of decisions as recorded BEFORE execution, not hindsight stories."""
 import json
 from .db import dumps
+from .daily_target import MANAGER_POLICY
 
 RUBRIC={
  'traders':{'source_quality_and_timing':25,'causal_case_and_priced_in':25,'counterevidence_and_invalidation':20,'risk_and_execution_discipline':20,'net_outcomes_with_sample_uncertainty':10},
  'research':{'source_quality_and_timing':35,'research_design_and_validation':35,'falsification_honesty_and_learning':30},
  'rules':[
+  MANAGER_POLICY,
   'Forschung/Warteschlange kann technisch keine Orders platzieren. Null Trades dort sind keine Schwäche; nur Recherche, Tests und Lernen bewerten.',
   'Historische Trades nach dem damaligen Konto und der damaligen Rolle beurteilen. Ein späterer Abteilungswechsel macht frühere Demo-/Fondstrades nicht zu Forschungsorders.',
   'Diskretionäre Nachrichten-/Fundamentalagenten haben keine feste algorithmische Strategie. Für sie sind Online-Recherche, Quellenvergleich, Wissen, Gegenargumente und Vorbereitung die Aufgabe; keine Backtests fordern oder für fehlende Backtests abwerten. Technische/regelbasierte Agenten behalten ihre passenden Tests.',

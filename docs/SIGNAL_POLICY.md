@@ -66,3 +66,5 @@ unabhängige Strategien, ungeeignete Feed-/Verzögerungsanforderungen, veraltete
 Quotes, fehlerhafte Bars, Untergrenze 15 Minuten sowie erneute Prüfung beim Fill.
 Transporttests verwenden ausdrücklich Testantworten. Echte Alpaca-/OpenAI-
 Kontoberechtigungen sind ohne lokale Schlüssel weiterhin nicht abgenommen.
+
+Daily objective (21 October 2026): Active demo/fund agents seek at least one new position per exchange trading day. Verified absence of a suitable opportunity is an allowed exception, reviewed by the manager with search/signal/execution evidence. Research is exempt. Extra candidate scans retain independent strategy and risk gates; no timer grants order permission. Only gaps inside the actual decision lookback can invalidate that decision; older unrelated gaps remain in historical data.
