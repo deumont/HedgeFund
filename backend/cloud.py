@@ -85,17 +85,35 @@ class CloudBridge:
                 timeout=12,trust_env=False,follow_redirects=False) as remote, httpx.AsyncClient(
                 base_url=f'http://127.0.0.1:{self.cfg.port}/api/',cookies={'atlas_session':self.token},
                 timeout=15,trust_env=False,follow_redirects=False) as local:
-                while not stop.is_set():
-                    try:
-                        await self.cycle(remote,local)
-                        self.db.integration('supabase','connected','Private Cloud-Konsole synchronisiert; lokale Engine bleibt einzige Ausführungsinstanz')
-                    except Exception as exc:
-                        self.db.integration('supabase','error',safe_error(exc))
-                    try: await asyncio.wait_for(stop.wait(),timeout=5)
-                    except asyncio.TimeoutError: pass
+                # Large background snapshots must never hold up interactive reads.
+                tasks=[asyncio.create_task(self.command_loop(remote,local,stop)),
+                       asyncio.create_task(self.snapshot_loop(remote,local,stop))]
+                try:
+                    await asyncio.gather(*tasks)
+                finally:
+                    for task in tasks:task.cancel()
+                    await asyncio.gather(*tasks,return_exceptions=True)
         finally:
             if self.token_hash:
                 with self.db.tx() as c: c.execute('DELETE FROM auth_sessions WHERE token_hash=?',(self.token_hash,))
+
+    async def command_loop(self,remote,local,stop):
+        while not stop.is_set():
+            try:
+                await self.cycle(remote,local)
+                errors=self.db.get('cloud_snapshot_errors',{})
+                detail=('Cloud verbunden; ausstehende Datensätze: '+', '.join(errors)) if errors else 'Private Cloud-Konsole synchronisiert; lokale Engine bleibt einzige Ausführungsinstanz'
+                self.db.integration('supabase','connected',detail)
+            except Exception as exc:
+                self.db.integration('supabase','error',safe_error(exc))
+            try:await asyncio.wait_for(stop.wait(),timeout=2)
+            except asyncio.TimeoutError:pass
+
+    async def snapshot_loop(self,remote,local,stop):
+        while not stop.is_set():
+            await self.sync_snapshots(remote,local)
+            try:await asyncio.wait_for(stop.wait(),timeout=max(30,self.cfg.cloud_sync_seconds))
+            except asyncio.TimeoutError:pass
 
     async def cycle(self,remote,local):
         stamp=now()
@@ -103,17 +121,27 @@ class CloudBridge:
                             json={'id':True,'engine_id':self.engine_id,'connected_at':stamp})
         r.raise_for_status()
         r=await remote.post('rpc/atlas_claim_commands',json={'p_engine':self.engine_id});r.raise_for_status()
-        for command in r.json():
-            await self.command(remote,local,command)
-        clock=asyncio.get_running_loop().time()
-        if clock-self.last_sync>=max(30,self.cfg.cloud_sync_seconds):
-            for path in BASE_PATHS:
-                await self.publish(remote,local,path)
-            # Warm all agent pages progressively without delaying trading or flooding the free tier.
-            for _ in range(5):
-                await self.publish(remote,local,'agents/'+str(self.next_detail))
-                self.next_detail=self.next_detail%100+1
-            self.last_sync=clock
+        # At most five commands are claimed by the RPC. Reads may run together;
+        # mutations retain ordered, once-only execution through command().
+        commands=r.json()
+        reads=[c for c in commands if c['method']=='GET']
+        results=await asyncio.gather(*(self.command(remote,local,c) for c in reads),return_exceptions=True)
+        for command in commands:
+            if command['method']!='GET':await self.command(remote,local,command)
+        for result in results:
+            if isinstance(result,Exception):raise result
+
+    async def sync_snapshots(self,remote,local):
+        errors={}
+        paths=[*BASE_PATHS]
+        for _ in range(5):
+            paths.append('agents/'+str(self.next_detail))
+            self.next_detail=self.next_detail%100+1
+        for path in paths:
+            try:await self.publish(remote,local,path)
+            except Exception as exc:errors[path]=safe_error(exc)
+        self.db.set('cloud_snapshot_errors',errors)
+        self.last_sync=asyncio.get_running_loop().time()
 
     async def publish(self,remote,local,path,payload=None):
         if not allowed_path('GET',path):
@@ -121,8 +149,14 @@ class CloudBridge:
         if payload is None:
             r=await local.get(path);r.raise_for_status();payload=r.json()
         # Show recent complete records, never cropped or invented record contents.
-        if path.startswith('agents/') and isinstance(payload,dict):
-            payload={k:v for k,v in payload.items() if k in ('profile','stats','runtime','day','manager_review')}
+        clean=urlsplit(path).path
+        if re.fullmatch(r'agents/\d+',clean) and isinstance(payload,dict):
+            payload={k:v for k,v in payload.items() if k in ('profile','stats','day_stats','runtime','day','manager_review')}
+        # Roster cards need the manager's assessment, not 100 duplicated evidence
+        # bundles. The underlying records remain available in the agent archive.
+        if clean=='agents' and isinstance(payload,list):
+            payload=[{k:({f:x for f,x in v.items() if f in ('id','agent_id','score','summary','model','created_at')} if k=='manager_review' and isinstance(v,dict) else v)
+                      for k,v in row.items() if k!='evaluation'} for row in payload]
         encoded=dumps(payload).encode()
         if len(encoded)>900000:
             raise ValueError('Cloud-Datensatz überschreitet die kostenlose Synchronisationsgrenze')
@@ -130,6 +164,7 @@ class CloudBridge:
         r=await remote.post('atlas_snapshots?on_conflict=path',headers={'Prefer':'resolution=merge-duplicates'},
             json={'path':normalize_path(path),'payload':payload,'etag':digest,'captured_at':now()})
         r.raise_for_status()
+        return payload
 
     async def command(self,remote,local,command):
         cid=command['id']; key='cloud-command-'+cid
@@ -150,7 +185,7 @@ class CloudBridge:
                 data=r.json()
                 if r.is_success:
                     if command['method']=='GET':
-                        await self.publish(remote,local,command['path'],data)
+                        data=await self.publish(remote,local,command['path'],data)
                     elif command['path']=='chat':
                         await self.publish(remote,local,'chats')
                         await self.publish(remote,local,'data/jobs')
@@ -160,6 +195,5 @@ class CloudBridge:
             except Exception as exc:
                 result={'status':'uncertain','error':safe_error(exc)+' Keine automatische Wiederholung.'}
             self.db.set(key,result)
-            self.last_sync=0
             self.db.event('cloud_command','Authentifizierter Cloud-Auftrag: '+command['path'],data={'command_id':cid,'status':result['status']})
         r=await remote.patch('atlas_commands',params={'id':'eq.'+cid},json=result);r.raise_for_status()

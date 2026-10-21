@@ -1,6 +1,7 @@
 import {createClient} from '@supabase/supabase-js'
 import {recoveryIntent,requestReset,verifyRecovery,updateRecovery,recoveryMessage} from './authRecovery'
 import {loginError,requestConfirmation} from './authConfirmation'
+import {createReadCommands,createSnapshotReader} from './cloudReads'
 
 const env=import.meta.env
 export const cloudMode= !['127.0.0.1','localhost'].includes(location.hostname)&&Boolean(env.VITE_SUPABASE_URL&&env.VITE_SUPABASE_PUBLISHABLE_KEY)
@@ -8,7 +9,19 @@ const initialRecovery=recoveryIntent(location.href)
 let recovering=cloudMode&&(initialRecovery.requested||initialRecovery.invalid)
 const recoveryListeners=new Set<(active:boolean)=>void>()
 const supabase=cloudMode?createClient(env.VITE_SUPABASE_URL,env.VITE_SUPABASE_PUBLISHABLE_KEY):null
-const cache=new Map<string,{etag:string,payload:any}>()
+const readCommand=createReadCommands(async(id,path)=>{
+ const {error}=await supabase!.rpc('atlas_submit_command',{p_id:id,p_method:'GET',p_path:path,p_body:{}})
+ if(error)throw new Error(error.message)
+},async id=>{
+ const {data,error}=await supabase!.rpc('atlas_command_result',{p_id:id})
+ if(error)throw new Error(error.message)
+ return data
+})
+const snapshots=createSnapshotReader(async(path,etag)=>{
+ const {data,error}=await supabase!.rpc('atlas_read_snapshot',{p_path:path,p_etag:etag})
+ if(error)throw new Error(error.message)
+ return data
+},readCommand)
 export let cloudCapturedAt:string|null=null
 supabase?.auth.onAuthStateChange(event=>{if(event==='PASSWORD_RECOVERY'){recovering=true;recoveryListeners.forEach(fn=>fn(true))}})
 export const isRecovering=()=>recovering
@@ -19,10 +32,10 @@ export async function sendConfirmation(email:string){if(!supabase)throw new Erro
 export async function saveRecoveredPassword(password:string,confirmation:string){
  if(!supabase||!recovering)throw new Error(recoveryMessage)
  await updateRecovery(supabase,password,confirmation)
- cache.clear();recovering=false;history.replaceState(null,'',location.pathname);recoveryListeners.forEach(fn=>fn(false))
+ snapshots.clear();recovering=false;history.replaceState(null,'',location.pathname);recoveryListeners.forEach(fn=>fn(false))
 }
 export async function cancelRecovery(){
- await supabase?.auth.signOut();cache.clear();recovering=false;history.replaceState(null,'',location.pathname);recoveryListeners.forEach(fn=>fn(false))
+ await supabase?.auth.signOut();snapshots.clear();recovering=false;history.replaceState(null,'',location.pathname);recoveryListeners.forEach(fn=>fn(false))
 }
 
 async function member(){
@@ -63,21 +76,12 @@ export async function cloudApi(rawPath:string,body?:any):Promise<any>{
  }
  if(path==='logout'){
   const {error}=await supabase.auth.signOut();if(error)throw new Error(error.message)
-  cache.clear();return {authenticated:false}
+  snapshots.clear();return {authenticated:false}
  }
  if(body!==undefined)return command(path,'POST',body)
- const old=cache.get(path)
- const {data,error}=await supabase.rpc('atlas_read_snapshot',{p_path:path,p_etag:old?.etag||''})
- if(error)throw new Error(error.message)
- if(data.missing)return command(path,'GET')
- const payload=data.payload??old?.payload
- if(payload===undefined)throw new Error('Cloud-Snapshot fehlt')
- if((/^agents\/\d+(?:\/history.*)?$/.test(path)||path.startsWith('calendar')||['trading-floor','closeout'].includes(path)||path==='team'||path.startsWith('team?')||path.startsWith('research'))&&data.heartbeat&&Date.now()-Date.parse(data.heartbeat)<90000&&Date.now()-Date.parse(data.captured_at)>15000){
-  return command(path,'GET')
- }
- cache.set(path,{etag:data.etag,payload})
+ const data=await snapshots.get(path),payload=data.payload
  if(path==='overview'){
-  cloudCapturedAt=data.captured_at
+  cloudCapturedAt=data.captured_at??null
   const fresh=data.heartbeat&&Date.now()-Date.parse(data.heartbeat)<90000
   return {...payload,worker_online:Boolean(fresh&&payload.worker_online),active_traders:fresh?payload.active_traders:0,
    cloud:{captured_at:data.captured_at,engine_connected:Boolean(fresh)}}

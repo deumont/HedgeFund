@@ -153,3 +153,11 @@ Latest CEO UI instruction: Trading Floor displays only today's live P&L, never c
 Latest CEO instruction: The overview wealth curve shows ONLY the current Berlin date from 15:30 through 18:30, with a fixed time axis. No earlier-day or morning points, no values after 18:30, no future/live snapshot appended outside this window. Before observations exist show an empty state. Keep actual fund capital, valuation gaps and uncertainty; do not fabricate an opening point or extend a line into the future.
 
 Login repair: An unconfirmed existing Supabase account requires the normal confirmation flow; provide translated email_not_confirmed errors and a resend-signup-confirmation button with a callback to the current site origin. Keep recovery and signup callbacks distinct. ATLAS membership is separate from email confirmation. Only explicitly authorized accounts may be added to atlas_members; do not globally disable confirmations/RLS or claim successful email verification before confirmed_at is present. Never commit account addresses, credentials or confirmation tokens.
+
+Cloud console reliability: Interactive reads must not wait for bulk snapshot warming.
+One oversized/failed snapshot must not abort later pages. Roster cards omit duplicated
+evaluation evidence, while source records and agent history stay intact. Match exact
+agent profile paths when projecting fields; preserve history/career and day_stats.
+Render existing snapshots immediately, refresh stale views in the background, and
+deduplicate/resume the same pending read across UI polls. Never automatically replay
+mutations or bypass local trading/authentication gates to fix console loading.

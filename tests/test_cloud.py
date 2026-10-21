@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime,timedelta,timezone
 import httpx
@@ -80,3 +81,56 @@ async def test_cloud_still_uses_existing_local_risk_rejection(db):
         await bridge.command(r,l,command)
     assert updates==[{'status':'failed','error':'Stale data'}]
     assert db.one('SELECT COUNT(*) n FROM orders')['n']==0
+
+
+@pytest.mark.asyncio
+async def test_cloud_roster_fits_limit_without_duplicating_manager_evidence(db):
+    bridge=CloudBridge(db,config());published=[]
+    row={'id':1,'day_stats':{'date':'2026-10-21','pnl_eur':3},
+         'evaluation':{'facts':'e'*12000},'manager_review':{'score':8,'summary':'Evidence-based','facts':'f'*12000}}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: (published.append(json.loads(r.content)) or httpx.Response(204))),base_url='https://cloud/') as remote:
+        result=await bridge.publish(remote,None,'agents',[dict(row,id=i) for i in range(1,101)])
+    assert len(json.dumps(published[0]).encode())<900000
+    assert len(result)==100 and result[0]['day_stats']==row['day_stats']
+    assert result[0]['manager_review']=={'score':8,'summary':'Evidence-based'}
+    assert 'facts' in row['manager_review']  # source records are untouched
+
+
+@pytest.mark.asyncio
+async def test_cloud_agent_history_is_not_mistaken_for_profile_and_keeps_daily_pnl(db):
+    bridge=CloudBridge(db,config())
+    history={'career':{'periods':[{'department':'demo'}]},'performance':{'roles':[]},'days':[],'day':{'date':'2026-10-21'}}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r:httpx.Response(204)),base_url='https://cloud/') as remote:
+        assert await bridge.publish(remote,None,'agents/76/history?month=2026-10',history)==history
+        profile={'profile':{'id':76},'day_stats':{'pnl_eur':5},'stats':{},'day':{},'irrelevant':'x'}
+        result=await bridge.publish(remote,None,'agents/76',profile)
+        assert result['day_stats']=={'pnl_eur':5} and 'irrelevant' not in result
+
+
+@pytest.mark.asyncio
+async def test_cloud_snapshot_failure_does_not_starve_calendar_or_commands(db,monkeypatch):
+    import backend.cloud as module
+    monkeypatch.setattr(module,'BASE_PATHS',['agents','calendar'])
+    bridge=CloudBridge(db,config());calendar=asyncio.Event();blocked=asyncio.Event();started=asyncio.Event()
+    async def local(request):
+        if request.url.path=='/api/agents':return httpx.Response(200,json={'oversize':'x'*900001})
+        if request.url.path=='/api/calendar':calendar.set();return httpx.Response(200,json={'days':[]})
+        started.set();await blocked.wait();return httpx.Response(200,json={'profile':{}})
+    cid='00000000-0000-4000-8000-000000000004';updates=[]
+    command={'id':cid,'method':'GET','path':'calendar','engine_id':bridge.engine_id,
+             'expires_at':(datetime.now(timezone.utc)+timedelta(minutes=1)).isoformat()}
+    def remote(request):
+        if request.url.path.endswith('atlas_claim_commands'):return httpx.Response(200,json=[command])
+        if request.method=='PATCH':updates.append(json.loads(request.content))
+        return httpx.Response(204)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(local),base_url='http://local/api/') as l, \
+               httpx.AsyncClient(transport=httpx.MockTransport(remote),base_url='https://cloud/') as r:
+        warming=asyncio.create_task(bridge.sync_snapshots(r,l))
+        try:
+            await asyncio.wait_for(calendar.wait(),1)
+            await asyncio.wait_for(started.wait(),1)
+            await asyncio.wait_for(bridge.cycle(r,l),1)  # warming is still blocked
+            assert updates==[{'status':'completed','result':{'days':[]}}]
+        finally:
+            blocked.set();await warming
+    assert 'agents' in db.get('cloud_snapshot_errors')
