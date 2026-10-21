@@ -1,5 +1,6 @@
 import {createClient} from '@supabase/supabase-js'
 import {recoveryIntent,requestReset,verifyRecovery,updateRecovery,recoveryMessage} from './authRecovery'
+import {loginError,requestConfirmation} from './authConfirmation'
 
 const env=import.meta.env
 export const cloudMode= !['127.0.0.1','localhost'].includes(location.hostname)&&Boolean(env.VITE_SUPABASE_URL&&env.VITE_SUPABASE_PUBLISHABLE_KEY)
@@ -14,6 +15,7 @@ export const isRecovering=()=>recovering
 export function onRecoveryChange(fn:(active:boolean)=>void){recoveryListeners.add(fn);return()=>{recoveryListeners.delete(fn)}}
 export async function checkRecovery(){if(!supabase||initialRecovery.invalid)throw new Error(recoveryMessage);return verifyRecovery(supabase)}
 export async function sendReset(email:string){if(!supabase)throw new Error('Nur für den Cloud-Zugang verfügbar.');await requestReset(supabase,email,location.origin)}
+export async function sendConfirmation(email:string){if(!supabase)throw new Error('Nur für den Cloud-Zugang verfügbar.');await requestConfirmation(supabase,email,location.origin)}
 export async function saveRecoveredPassword(password:string,confirmation:string){
  if(!supabase||!recovering)throw new Error(recoveryMessage)
  await updateRecovery(supabase,password,confirmation)
@@ -55,7 +57,7 @@ export async function cloudApi(rawPath:string,body?:any):Promise<any>{
  if(path==='session')return {authenticated:await member()}
  if(path==='login'){
   const {error}=await supabase.auth.signInWithPassword({email:body.email,password:body.password})
-  if(error)throw new Error(error.message)
+  if(error)throw loginError(error)
   if(!await member()){await supabase.auth.signOut();throw new Error('Dieses Konto hat keinen ATLAS-Zugriff.')}
   return {authenticated:true}
  }

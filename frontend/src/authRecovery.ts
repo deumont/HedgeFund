@@ -2,7 +2,7 @@ export const recoveryMessage='Der Reset-Link ist abgelaufen oder ungültig. Bitt
 type AuthClient={auth:{resetPasswordForEmail:(email:string,options:{redirectTo:string})=>Promise<any>,getUser:()=>Promise<any>,updateUser:(data:{password:string})=>Promise<any>,signOut:()=>Promise<any>}}
 export function recoveryIntent(url:string){
  const u=new URL(url),hash=new URLSearchParams(u.hash.slice(1))
- return {requested:u.searchParams.get('auth')==='recovery'||hash.get('type')==='recovery',invalid:Boolean(hash.get('error')||u.searchParams.get('error'))}
+ return {requested:u.searchParams.get('auth')==='recovery'||hash.get('type')==='recovery',invalid:u.searchParams.get('auth')!=='confirmed'&&Boolean(hash.get('error')||u.searchParams.get('error'))}
 }
 export function validatePassword(password:string,confirmation:string){
  if(password.length<12)throw new Error('Bitte mindestens 12 Zeichen verwenden.')
