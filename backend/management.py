@@ -15,17 +15,13 @@ class ManagementService:
 
     def claim(self):
         with self.db.tx() as c:
-            row=c.execute("SELECT * FROM jobs WHERE status='pending' AND kind IN ('agent_report','manager_review','manager_daily') AND available_at<=? ORDER BY priority,created_at LIMIT 1",(now(),)).fetchone()
+            row=c.execute("SELECT * FROM jobs WHERE status='pending' AND kind IN ('agent_report','manager_review','manager_daily') AND (? OR kind='manager_daily' AND json_extract(payload,'$.date')>='2026-10-21') AND available_at<=? ORDER BY priority,created_at LIMIT 1",(self.db.get('engine_enabled'),now())).fetchone()
             if not row:return None
             c.execute("UPDATE jobs SET status='running',attempts=attempts+1,updated_at=? WHERE id=?",(now(),row['id']))
             return dict(row)
 
     async def runner(self,stop):
         while not stop.is_set():
-            if not self.db.get('engine_enabled'):
-                try:await asyncio.wait_for(stop.wait(),5)
-                except asyncio.TimeoutError:pass
-                continue
             job=self.claim()
             if not job:
                 try:await asyncio.wait_for(stop.wait(),2)
@@ -48,7 +44,6 @@ class ManagementService:
             self.db.set('manager_heartbeat',now())
 
     async def run(self,stop):
-        if not self.cfg.openai_api_key:return
         with self.db.tx() as c:
             c.execute("UPDATE jobs SET status='uncertain',error='Vorheriger Berichtsprozess unterbrochen; keine automatische Wiederholung',updated_at=? WHERE status='running' AND kind IN ('agent_report','manager_review','manager_daily')",(now(),))
         runners=[asyncio.create_task(self.runner(stop)) for _ in range(2)]
@@ -58,10 +53,10 @@ class ManagementService:
                 if self.db.get('engine_enabled'):
                     # The manager may review continuously; trading-session gates are separate.
                     schedule(self.db,self.cfg,at)
-                    bucket=int(at.timestamp())//60
-                    if self.daily_bucket!=bucket:
-                        await asyncio.to_thread(schedule_daily,self.db,self.cfg,at)
-                        self.daily_bucket=bucket
+                bucket=int(at.timestamp())//60
+                if self.daily_bucket!=bucket:
+                    await asyncio.to_thread(schedule_daily,self.db,self.cfg,at)
+                    self.daily_bucket=bucket
                 try:await asyncio.wait_for(stop.wait(),15)
                 except asyncio.TimeoutError:pass
         finally:

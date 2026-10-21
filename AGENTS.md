@@ -98,3 +98,16 @@ Manager sieht Ansatz und tatsächliche Ergebnisse; kein automatischer Aufstieg
 wegen kurzer Glücksserie. Echtgeldausführung bleibt deaktiviert. 25-Prozent-
 Kapitalgrenze, geeignete Ausführungsdaten, mindestens 15-Minuten-Zeitrahmen,
 Forschungsfenster und API-Monatsbudget bleiben bestehen.
+
+CEO-Aufträge vom 21.10.2026 (neuester Stand): Forschungs-/Warteschlangenagenten
+verwenden gpt-5.4-mini, Demo und Fonds gpt-6.1-sol. Modell bei jedem Aufruf aus
+der aktuellen Abteilung bestimmen; Auf-/Abstiege müssen die Wahl sofort ändern.
+Manager bleibt gpt-5.4-mini. Budget, Tagesberichte und Modellanzeige konsistent halten.
+Ab heute täglich mindestens ein benachbartes Tauschpaar (Aufstieg und Abstieg)
+nach dem persönlichen Handelsschluss durchführen, 25 Fonds / 25 Demo / 50 Forschung
+atomar bewahren. Kurze Stichproben als Erprobung kennzeichnen. Bei fehlender
+Modellantwort darf eine ausdrücklich gekennzeichnete Managerregel gespeicherte
+Bewertungen/Ergebnisse nutzen; keine Modellantwort erfinden. Offene Positionen
+und Orders verhindern den betroffenen Rollenwechsel; freie Ersatzpaare bevorzugen.
+Passwort-Recovery auf der öffentlichen Website unterstützen; RLS und den privaten
+ATLAS-Mitgliedszugang erhalten. Neue Passwörter setzt der Benutzer selbst.

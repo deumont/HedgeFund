@@ -87,7 +87,7 @@ prüfbare Entscheidungserklärungen, keine internen Denkprozesse. Modellgewichte
 Risikolimits und Paper-only-Modus können weder per Chat noch durch Agenten verändert werden.
 Administrative Maßnahmen nur als Vorschlag mit erforderlicher CEO-Bestätigung.
 Ausnahme: Der CEO hat tägliche Paper-Personalentscheidungen ausdrücklich delegiert.
-Nur der separate manager_daily-Auftrag darf belegte Tausche für frühestens morgen
+Nur der separate manager_daily-Auftrag darf die delegierten täglichen Tausche nach Handelsschluss
 entscheiden; keine Risiko-, Budget-, Geld- oder Orderfreigabe ändern.
 Standard ist HOLD/NO TRADE. Kein Trade wegen verstrichener Zeit, Quoten, Aktivitätszielen
 oder langer Handelspause. Tage/Wochen ohne Einstieg sind zulässig. Nur vordefinierte
@@ -112,6 +112,8 @@ class AI:
         if byte_bound>140000:
             raise BudgetError('KI-Kontext überschreitet lokale Grenze')
         at=datetime.now(timezone.utc)
+        pause=self.db.get('openai_retry_after')
+        if pause and at<datetime.fromisoformat(pause):raise BudgetError('OpenAI-Raten-/Kontingentpause; nächster Versuch nach '+pause)
         with self.db.tx() as c:
             fx=latest_fx(c,at)
             # Bytes bound token count; no cache discount, 30% pricing/FX safety margin.
@@ -126,7 +128,8 @@ class AI:
         return rid,fx
 
     async def call(self,kind,messages,agent_id=None,tools=None,schema=None):
-        model=self.cfg.openai_manager_model if kind in ('manager','manager_review','manager_daily') else self.cfg.openai_model
+        from .models import request_model
+        model=request_model(self.db,self.cfg,kind,agent_id)
         limit=3400 if kind=='manager_daily' else 1100 if kind in ('manager','agent_report') else 1800 if kind=='manager_review' else 2400
         params=dict(model=model,instructions=SYSTEM,input=messages,max_output_tokens=limit,
                     reasoning={'effort':'low'},service_tier='default',store=False,include=['reasoning.encrypted_content'])
@@ -158,9 +161,12 @@ class AI:
             return response
         except BaseException as exc:
             with self.db.tx() as c:
-                if getattr(exc,'status_code',None) in (400,401,403,404,422):
+                if getattr(exc,'status_code',None) in (400,401,403,404,422,429):
                     c.execute("UPDATE usage SET status='rejected',reserved_u=0 WHERE id=? AND status='reserved'",(rid,))
                     event(c,'api_rejected','Provider hat Anfrage vor Inferenz abgelehnt',agent_id,level='warning',data={'usage_id':rid,'http_status':exc.status_code})
+                    if exc.status_code==429:
+                        from .db import put
+                        put(c,'openai_retry_after',(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat())
                 else:
                     c.execute("UPDATE usage SET status='uncertain' WHERE id=? AND status='reserved'",(rid,))
             raise
@@ -404,14 +410,13 @@ def propose_swap(db,first,second,reason,effective=None):
 def apply_rotations(db,at=None):
     at=at or datetime.now(timezone.utc)
     clock=phase(db,at)
-    if clock['phase']!='preparing':
+    if clock['phase'] not in ('preparing','review','stopped'):
         return []
     applied=[]
     with db.tx() as c:
-        if c.execute("SELECT 1 FROM decisions WHERE kind='rotation' AND status='applied' AND substr(applied_at,1,10)=?",(at.date().isoformat(),)).fetchone():
-            return []
         for row in c.execute("SELECT * FROM decisions WHERE kind='rotation' AND status='approved' AND effective_date<=? ORDER BY created_at",(clock['date'],)).fetchall():
             p=json.loads(row['payload'])
+            if clock['phase']!='preparing' and (p.get('source')!='manager_daily' or p.get('review_date','')<'2026-10-21'):continue
             ids=(p['first'],p['second'])
             if c.execute('SELECT 1 FROM positions WHERE agent_id IN (?,?)',ids).fetchone() or c.execute("SELECT 1 FROM orders WHERE agent_id IN (?,?) AND status IN ('pending','triggered')",ids).fetchone():
                 event(c,'rotation_deferred','Personalwechsel wegen offener Positionen/Orders zurückgestellt',data={'decision_id':row['id']})

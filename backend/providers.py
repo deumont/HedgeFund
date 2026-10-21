@@ -194,33 +194,37 @@ class Providers:
         daily=minutes==1440
         aggregate=minutes>=60 and minutes%60!=0
         frame=TimeFrame.Day if daily else TimeFrame(15,TimeFrameUnit.Minute) if aggregate else TimeFrame(minutes//60,TimeFrameUnit.Hour) if minutes%60==0 else TimeFrame(minutes,TimeFrameUnit.Minute)
-        records=data_client(StockHistoricalDataClient,self.cfg).get_stock_bars(StockBarsRequest(
-            symbol_or_symbols=symbol,timeframe=frame,start=end-timedelta(days=days),end=end,
-            adjustment=Adjustment.ALL if daily else Adjustment.RAW,feed=DataFeed(self.cfg.alpaca_feed)))
-        items=records.data.get(symbol,[])
-        if aggregate:
-            from types import SimpleNamespace
-            groups={}
-            for item in items:
-                local=item.timestamp.astimezone(NEW_YORK);anchor=local.replace(hour=9,minute=30,second=0,microsecond=0)
-                if local<anchor:continue
-                index=int((local-anchor).total_seconds()//(minutes*60))
-                groups.setdefault(anchor+timedelta(minutes=index*minutes),[]).append(item)
-            items=[]
-            for start,group in sorted(groups.items()):
-                group.sort(key=lambda x:x.timestamp)
-                if len(group)!=minutes//15 or any(g.timestamp!=start+timedelta(minutes=i*15) for i,g in enumerate(group)):continue
-                items.append(SimpleNamespace(timestamp=start,open=group[0].open,high=max(g.high for g in group),low=min(g.low for g in group),close=group[-1].close,volume=sum(g.volume for g in group)))
-        count=0
-        with self.db.tx() as c:
-            for item in items:
-                if item.timestamp+timedelta(minutes=minutes)>end:continue
-                c.execute('INSERT OR REPLACE INTO bars VALUES(?,?,?,?,?,?,?,?,?,?)',
-                    (symbol,item.timestamp.isoformat(),'1Day' if daily else f'{minutes}Min',str(item.open),str(item.high),str(item.low),str(item.close),int(item.volume),
-                     'Alpaca '+self.cfg.alpaca_feed.upper(),'all' if daily else 'raw'))
-                count+=1
+        loaded_days=days
+        for attempt_days in sorted(set([days,min(3650,days*3),min(3650,days*9)])):
+            loaded_days=attempt_days
+            records=data_client(StockHistoricalDataClient,self.cfg).get_stock_bars(StockBarsRequest(
+                symbol_or_symbols=symbol,timeframe=frame,start=end-timedelta(days=attempt_days),end=end,
+                adjustment=Adjustment.ALL if daily else Adjustment.RAW,feed=DataFeed(self.cfg.alpaca_feed)))
+            items=records.data.get(symbol,[])
+            if aggregate:
+                from types import SimpleNamespace
+                groups={}
+                for item in items:
+                    local=item.timestamp.astimezone(NEW_YORK);anchor=local.replace(hour=9,minute=30,second=0,microsecond=0)
+                    if local<anchor:continue
+                    index=int((local-anchor).total_seconds()//(minutes*60))
+                    groups.setdefault(anchor+timedelta(minutes=index*minutes),[]).append(item)
+                items=[]
+                for start,group in sorted(groups.items()):
+                    group.sort(key=lambda x:x.timestamp)
+                    if len(group)!=minutes//15 or any(g.timestamp!=start+timedelta(minutes=i*15) for i,g in enumerate(group)):continue
+                    items.append(SimpleNamespace(timestamp=start,open=group[0].open,high=max(g.high for g in group),low=min(g.low for g in group),close=group[-1].close,volume=sum(g.volume for g in group)))
+            count=0
+            with self.db.tx() as c:
+                for item in items:
+                    if item.timestamp+timedelta(minutes=minutes)>end:continue
+                    c.execute('INSERT OR REPLACE INTO bars VALUES(?,?,?,?,?,?,?,?,?,?)',
+                        (symbol,item.timestamp.isoformat(),'1Day' if daily else f'{minutes}Min',str(item.open),str(item.high),str(item.low),str(item.close),int(item.volume),
+                         'Alpaca '+self.cfg.alpaca_feed.upper(),'all' if daily else 'raw'))
+                    count+=1
+            if count>=required:break
         self.db.integration('strategy_history','connected',f'{symbol}: {count} echte Bars für {minutes}-Minuten-Strategie nachgeladen; {required} Bars als Test-Ziel')
-        return {'symbol':symbol,'bars':count,'target_bars':required,'days':days}
+        return {'symbol':symbol,'bars':count,'target_bars':required,'days':loaded_days}
 
     def company_news(self,symbol,days=60):
         from .universe import eligible

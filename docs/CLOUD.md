@@ -29,3 +29,13 @@ and https://supabase.com/docs/guides/platform/free-project-pausing.
 20 October 2026: schema applied, private snapshots synchronized, anonymous table
 and RPC access rejected. CEO Auth-user creation and membership are still pending;
 remote password login cannot be claimed as tested until that step is completed.
+
+21 October 2026: the CEO-created, confirmed account has been granted private ATLAS
+membership. Site URL is https://hedgefund-dusky.vercel.app and the exact allowed
+recovery callback is https://hedgefund-dusky.vercel.app/?auth=recovery.
+The frontend handles both dashboard recovery fragments and email-reset callbacks,
+validates the session, and asks the user to enter and confirm a new password.
+Expired links offer a new reset request. A password change itself requires the
+human user; no passwords or recovery tokens are stored in source or local reports.
+
+Reference: https://supabase.com/docs/reference/javascript/auth-resetpasswordforemail

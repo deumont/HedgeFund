@@ -1,10 +1,27 @@
 import {createClient} from '@supabase/supabase-js'
+import {recoveryIntent,requestReset,verifyRecovery,updateRecovery,recoveryMessage} from './authRecovery'
 
 const env=import.meta.env
 export const cloudMode= !['127.0.0.1','localhost'].includes(location.hostname)&&Boolean(env.VITE_SUPABASE_URL&&env.VITE_SUPABASE_PUBLISHABLE_KEY)
+const initialRecovery=recoveryIntent(location.href)
+let recovering=cloudMode&&(initialRecovery.requested||initialRecovery.invalid)
+const recoveryListeners=new Set<(active:boolean)=>void>()
 const supabase=cloudMode?createClient(env.VITE_SUPABASE_URL,env.VITE_SUPABASE_PUBLISHABLE_KEY):null
 const cache=new Map<string,{etag:string,payload:any}>()
 export let cloudCapturedAt:string|null=null
+supabase?.auth.onAuthStateChange(event=>{if(event==='PASSWORD_RECOVERY'){recovering=true;recoveryListeners.forEach(fn=>fn(true))}})
+export const isRecovering=()=>recovering
+export function onRecoveryChange(fn:(active:boolean)=>void){recoveryListeners.add(fn);return()=>{recoveryListeners.delete(fn)}}
+export async function checkRecovery(){if(!supabase||initialRecovery.invalid)throw new Error(recoveryMessage);return verifyRecovery(supabase)}
+export async function sendReset(email:string){if(!supabase)throw new Error('Nur für den Cloud-Zugang verfügbar.');await requestReset(supabase,email,location.origin)}
+export async function saveRecoveredPassword(password:string,confirmation:string){
+ if(!supabase||!recovering)throw new Error(recoveryMessage)
+ await updateRecovery(supabase,password,confirmation)
+ cache.clear();recovering=false;history.replaceState(null,'',location.pathname);recoveryListeners.forEach(fn=>fn(false))
+}
+export async function cancelRecovery(){
+ await supabase?.auth.signOut();cache.clear();recovering=false;history.replaceState(null,'',location.pathname);recoveryListeners.forEach(fn=>fn(false))
+}
 
 async function member(){
  const {data:user,error:userError}=await supabase!.auth.getUser()

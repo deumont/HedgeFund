@@ -6,6 +6,7 @@ from pydantic import BaseModel,ConfigDict,Field
 from .calendar import BERLIN
 from .config import now
 from .db import dumps,uid
+from .models import agent_model
 
 
 class Narrative(BaseModel):
@@ -65,7 +66,7 @@ def evidence_hash(evidence,model):
 def queue_report(db,cfg,aid,day=None):
     from .worker import enqueue
     evidence=day_evidence(db,aid,day)
-    digest=evidence_hash(evidence,cfg.openai_model)
+    digest=evidence_hash(evidence,agent_model(db,cfg,aid))
     previous=db.one('SELECT id FROM agent_reports WHERE agent_id=? AND report_date=? AND evidence_hash=?',(aid,evidence['date'],digest))
     if previous:return None
     return enqueue(db,'agent_report',{'date':evidence['date']},aid,12,dedupe=f"agent-report-{aid}-{evidence['date']}-{digest}")
@@ -82,7 +83,8 @@ def day_view(db,aid,day=None):
 async def write_report(db,cfg,aid,day=None):
     from .intelligence import AI
     evidence=day_evidence(db,aid,day)
-    digest=evidence_hash(evidence,cfg.openai_model)
+    model=agent_model(db,cfg,aid)
+    digest=evidence_hash(evidence,model)
     previous=db.one('SELECT * FROM agent_reports WHERE agent_id=? AND report_date=? AND evidence_hash=?',(aid,evidence['date'],digest))
     if previous:return {'report_id':previous['id']}
     compact={**evidence,'trades':evidence['trades'][-20:],'actions':evidence['actions'][:40]}
@@ -96,7 +98,7 @@ async def write_report(db,cfg,aid,day=None):
     if not set(result.evidence_ids)<=allowed:raise ValueError('Bericht nennt nicht vorhandene Belege')
     rid=uid()
     with db.tx() as c:
-        c.execute('INSERT OR IGNORE INTO agent_reports VALUES(?,?,?,?,?,?,?,?)',(rid,aid,evidence['date'],digest,result.report,dumps(compact),cfg.openai_model,now()))
+        c.execute('INSERT OR IGNORE INTO agent_reports VALUES(?,?,?,?,?,?,?,?)',(rid,aid,evidence['date'],digest,result.report,dumps(compact),model,now()))
     return {'report_id':rid,'agent_id':aid}
 
 

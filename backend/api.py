@@ -218,6 +218,8 @@ def create_app(cfg=None,db=None):
         for row in rows:
             from .news_agents import mandate
             row.update(mandate(db,row['id']))
+            from .models import agent_model
+            row['model']=agent_model(db,cfg,row['id'])
             e=db.one('SELECT * FROM evaluations WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(row['id'],))
             if not e or (datetime.now(timezone.utc)-datetime.fromisoformat(e['created_at'])).total_seconds()>300:
                 evaluate(db,row['id'])
@@ -236,6 +238,8 @@ def create_app(cfg=None,db=None):
             evaluate(db,aid)
         from .news_agents import mandate
         profile.update(mandate(db,aid))
+        from .models import agent_model
+        profile['model']=agent_model(db,cfg,aid)
         result={'profile':profile}
         from .agent_state import agent_states
         result.update(agent_states(db,[aid])[aid])
@@ -466,6 +470,9 @@ def create_app(cfg=None,db=None):
         for name,start in [('day',stamp.replace(hour=0,minute=0,second=0,microsecond=0)),('month',stamp.replace(day=1,hour=0,minute=0,second=0,microsecond=0))]:
             rows_cost=db.one("SELECT COALESCE(SUM(CASE WHEN status='settled' THEN cost_u ELSE reserved_u END),0) amount FROM usage WHERE created_at>=?",(start.astimezone(timezone.utc).isoformat(),))
             totals[name+'_cost_bound_eur']=eur(rows_cost['amount'])
+            if name=='month':
+                detail=db.one("SELECT COALESCE(SUM(CASE WHEN status='settled' THEN cost_u ELSE 0 END),0) confirmed,COALESCE(SUM(CASE WHEN status='uncertain' THEN reserved_u ELSE 0 END),0) uncertain,COALESCE(SUM(CASE WHEN status='reserved' THEN reserved_u ELSE 0 END),0) active FROM usage WHERE created_at>=?",(start.astimezone(timezone.utc).isoformat(),))
+                totals.update(month_confirmed_cost_eur=eur(detail['confirmed']),month_uncertain_bound_eur=eur(detail['uncertain']),month_active_reservations_eur=eur(detail['active']))
         return {'cpu_pct':psutil.cpu_percent(),'ram_pct':memory.percent,'ram_available_gb':memory.available/1e9,
                 'disk_free_gb':disk.free/1e9,'integrations':db.all('SELECT * FROM integrations ORDER BY name'),
                 'worker_heartbeat':db.get('worker_heartbeat'),'engine_enabled':db.get('engine_enabled'),
@@ -473,7 +480,7 @@ def create_app(cfg=None,db=None):
                 'usage':usage,'budget_monthly_eur':float(cfg.monthly_budget_eur),'budget_daily_eur':None,**totals,
                 'risk':active_risk,'fund_cash_limits':active_caps,'paper_sizing_mode':db.get('paper_sizing_mode','capped'),'risk_confirmed':db.get('risk_confirmed'),
                 'configured':{'openai':bool(cfg.openai_api_key),'alpaca':cfg.has_alpaca,'sec':bool(cfg.sec_user_agent)},
-                'model':cfg.openai_model,'manager_model':cfg.openai_manager_model,'feed':cfg.alpaca_feed,
+                'model':cfg.openai_model,'research_model':cfg.openai_research_model,'manager_model':cfg.openai_manager_model,'feed':cfg.alpaca_feed,
                 'agent_approaches':db.all('SELECT approach,COUNT(*) count FROM agent_mandates GROUP BY approach'),
                 'stock_universe':{'tradable_count':db.one("SELECT COUNT(*) n FROM assets WHERE tradable=1 AND asset_class='us_equity'")['n'],
                                   'data_scope':'Alpaca US-Aktien/ETFs; Daten nach Bedarf, IEX ist kein Gesamtmarktfeed'},

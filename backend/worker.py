@@ -136,6 +136,13 @@ class Worker:
         research_open=research_window()['open']
         with self.db.tx() as c:
             row=c.execute("SELECT * FROM jobs WHERE status='pending' AND kind NOT IN ('agent_report','manager_review','manager_daily') AND (? OR kind NOT IN ('analysis','backtest')) AND available_at<=? ORDER BY priority,created_at LIMIT 1",(research_open,now())).fetchone()
+            if row and row['kind'] in ('analysis','backtest'):
+                # A continuing stream of historical tests must not starve each
+                # agent's analysis. Provider/safety tasks keep their priority.
+                other='analysis' if getattr(self,'last_research_kind','backtest')=='backtest' else 'backtest'
+                candidate=c.execute("SELECT * FROM jobs WHERE status='pending' AND kind=? AND available_at<=? ORDER BY priority,created_at LIMIT 1",(other,now())).fetchone()
+                if candidate:row=candidate
+                self.last_research_kind=row['kind']
             if row:
                 c.execute("UPDATE jobs SET status='running',attempts=attempts+1,updated_at=? WHERE id=?",(now(),row['id']))
                 return dict(row)|{'attempts':row['attempts']+1}
@@ -419,9 +426,12 @@ class Worker:
                 progress(self.db,job['agent_id'],'backtest','Lädt ausreichende Historie für getrennte In-/Out-of-Sample-Tests')
                 strategy=self.db.one('SELECT spec FROM strategies WHERE id=? AND agent_id=?',(payload['strategy_id'],job['agent_id']))
                 if not strategy:raise ValueError('Strategie fehlt')
-                await asyncio.to_thread(self.providers.strategy_history,payload['symbol'],json.loads(strategy['spec']))
+                loaded=await asyncio.to_thread(self.providers.strategy_history,payload['symbol'],json.loads(strategy['spec']))
                 require_research()
-                return await asyncio.to_thread(run_backtest,self.db,job['agent_id'],payload['strategy_id'],payload['symbol'])
+                try:return await asyncio.to_thread(run_backtest,self.db,job['agent_id'],payload['strategy_id'],payload['symbol'])
+                except ValueError as missing:
+                    if not str(missing).startswith(('Zu wenig Daten für getrennte','Historische Daten fehlen')):raise
+                    raise ValueError(f"{payload['symbol']}: Nachladen abgeschlossen, aber Datenabdeckung unzureichend ({loaded.get('bars',0)} Bars, Ziel {loaded.get('target_bars','?')}, {loaded.get('days','?')} Tage). Kein belastbarer Test mit diesem Datensatz.") from missing
         if kind=='analysis':
             if not self.db.get('engine_enabled'):
                 raise BudgetError('KI-Engine pausiert')

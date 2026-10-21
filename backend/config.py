@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     alpaca_paper_api_key: str = ""
     alpaca_paper_secret_key: str = ""
     openai_model: str = "gpt-6.1-sol"
+    openai_research_model: str = "gpt-5.4-mini"
     openai_manager_model: str = "gpt-5.4-mini"
     openai_input_usd_per_million: Decimal = Decimal("2")
     openai_output_usd_per_million: Decimal = Decimal("10")
