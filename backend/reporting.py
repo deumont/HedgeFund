@@ -7,6 +7,7 @@ from .calendar import BERLIN
 from .config import now
 from .db import dumps,uid
 from .models import agent_model
+from .decision_quality import RUBRIC,quality_evidence,compact_quality
 
 
 class Narrative(BaseModel):
@@ -43,7 +44,7 @@ def day_evidence(db,aid,day=None):
     trades=db.all("SELECT f.*,o.reason,s.observations FROM fills f JOIN orders o ON o.id=f.order_id LEFT JOIN order_signals os ON os.order_id=o.id LEFT JOIN signal_decisions s ON s.id=os.signal_id WHERE f.agent_id=? AND f.portfolio_id=? AND f.created_at>=? AND f.created_at<? ORDER BY f.created_at",(aid,pid,start,end))
     for r in trades:
         proof=json.loads(r.pop('observations') or '{}')
-        r['signal']={k:proof[k] for k in ('indicators','last_bar_end','available_after','exit_condition','strategy_spec','completed_bars_held','policy','event_thesis','entry_basis','experiment') if k in proof}
+        r['signal']={k:proof[k] for k in ('indicators','last_bar_end','available_after','exit_condition','strategy_spec','completed_bars_held','policy','event_thesis','entry_basis','experiment','decision_dossier') if k in proof}
     analyses=db.all('SELECT id,result,created_at FROM analyses WHERE agent_id=? AND created_at>=? AND created_at<? ORDER BY created_at',(aid,start,end))
     tests=db.all('SELECT id,symbol,result,created_at FROM backtests WHERE agent_id=? AND created_at>=? AND created_at<? ORDER BY created_at',(aid,start,end))
     actions=[{'id':r['id'],'kind':'trade','time':r['created_at'],'symbol':r['symbol'],'side':r['side'],'qty':r['qty'],'reason':r['reason'],'signal':r['signal'],'realized_eur':r['realized_u']/1e6} for r in trades]
@@ -55,7 +56,9 @@ def day_evidence(db,aid,day=None):
         oos=json.loads(r['result']).get('out_of_sample',{})
         actions.append({'id':r['id'],'kind':'backtest','time':r['created_at'],'symbol':r['symbol'],'reason':'Historischer Backtest','oos_return_pct':oos.get('return_pct')})
     actions.sort(key=lambda r:r['time'],reverse=True)
-    return {'date':day,'profile':agent,'market_data_policy':db.get('market_data_policy'),'trade_count':len(trades),'analysis_count':len(analyses),'backtest_count':len(tests),
+    return {'date':day,'profile':agent,'execution_eligible':agent['department']!='research',
+            'role_note':'Forschungsagent ohne Orderberechtigung; Recherche, Tests und Lernen sind seine Aufgabe.' if agent['department']=='research' else 'Paper-Trader: belegte Entscheidungen und tatsächliche Ausführung bewerten.',
+            'market_data_policy':db.get('market_data_policy'),'trade_count':len(trades),'analysis_count':len(analyses),'backtest_count':len(tests),
             'actions':actions,'trades':trades,'positions':db.all('SELECT * FROM positions WHERE agent_id=?',(aid,))}
 
 
@@ -77,6 +80,12 @@ def day_view(db,aid,day=None):
     evidence['report']=db.one('SELECT * FROM agent_reports WHERE agent_id=? AND report_date=? ORDER BY created_at DESC LIMIT 1',(aid,evidence['date']))
     evidence['manager_review']=db.one('SELECT * FROM manager_reviews WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(aid,))
     evidence['report_job']=db.one("SELECT id,status,error,updated_at FROM jobs WHERE agent_id=? AND kind='agent_report' AND created_at>=? ORDER BY created_at DESC LIMIT 1",(aid,window(evidence['date'])[1]))
+    from .web_research import recent_research
+    evidence['public_research']=recent_research(db,aid,3)
+    evidence['news_monitor']=db.get('agent-news-monitor-'+str(aid))
+    if evidence['news_monitor']:
+        evidence['news_monitor']['assessment']=db.one("SELECT status,error,updated_at FROM jobs WHERE agent_id=? AND kind='news_thesis' ORDER BY updated_at DESC LIMIT 1",(aid,))
+    evidence['execution_eligible']=evidence['profile']['department']!='research'
     return evidence
 
 
@@ -115,11 +124,12 @@ async def review_agents(db,cfg,ids):
         profile.update(mandate(db,aid))
         evaluation=evaluate(db,aid)
         metrics=evaluation['metrics']
-        evidence.append({'profile':profile,'state':states[aid],
+        evidence.append({'profile':profile,'state':states[aid],'decision_quality':compact_quality(quality_evidence(db,aid)),
             'metrics':{k:metrics.get(k) for k in ('closed_trades','days','eligible','research_tests','latest_research_oos','evidence_progress')},
             'day':{k:v for k,v in day_evidence(db,aid).items() if k in ('date','trade_count','analysis_count','backtest_count')}})
     response=await AI(db,cfg).call('manager_review',[{'role':'user','content':dumps({
         'task':'Bewerte jeden genannten Agenten genau einmal von 0 bis 10. Dies ist eine vorläufige Managerbeurteilung von Regelbefolgung, Datenqualität, Forschung und Ausführung, kein statistisch belegter Gewinnscore. Keine Trades erzwingen; Nicht-Handeln bei fehlendem Signal ist korrekt. Fehlende Evidenz offen nennen. Je Agent höchstens zwei kurze Sätze mit konkretem Grund. Nur bereitgestellte Fakten verwenden.',
+        'quality_rubric':RUBRIC,
         'agents':evidence})}],schema=Ratings.model_json_schema())
     result=Ratings.model_validate_json(response.output_text)
     if sorted(r.agent_id for r in result.ratings)!=sorted(ids):raise ValueError('Bewertung enthält falsche/doppelte Agenten')

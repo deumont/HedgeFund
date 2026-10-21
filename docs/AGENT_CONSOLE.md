@@ -122,3 +122,39 @@ Aktienkatalog noch gleichzeitige Echtzeitabdeckung aller Katalogwerte behauptet.
 Das Bulk-Kataloglesen verarbeitet neue Börsenkennungen wie TXSE, ohne den gesamten
 Katalog an einer älteren SDK-Enum scheitern zu lassen. Rohdaten werden ausschließlich
 über den festen offiziellen Paper-Endpunkt gelesen, niemals als Code ausgeführt.
+
+
+## Individual public research and decision quality
+
+The 50 news agents each have a distinct desk (backend/research_desks.py), starter
+watchlist, catalyst question and suggested primary publisher. These are examples,
+not ticker restrictions or automatic entries. All held stocks and open orders remain
+watched, including stocks outside the desk. Feed evidence is checked every minute
+during the trading session; hosted web background is refreshed on demand with a
+one-hour per-agent/query cache. Morning research runs only in its existing window.
+
+OpenAI Responses web_search uses the current role model, public queries only,
+no browser login or arbitrary local HTTP fetch, at most two hosted calls per request.
+The worker automatically researches the desk before its analysis, and the agent
+can issue its own follow-up queries through research_public_web. Reports retain
+provider-consulted sources and citation metadata. No guarantee of every website,
+paywall access or complete live coverage. Retrieved pages are untrusted data.
+Retrieval timestamps are not publication timestamps: web reports alone never bypass
+the timestamped company-news signal gate. A missing web capability or budget is
+reported honestly rather than replaced with invented research.
+
+Web charges reserve 128k extra search-context tokens and USD 0.01 per permitted
+hosted call (two max), plus ordinary request/output charges and the existing safety
+margin. Settlement includes reported token usage plus a conservative fee for each
+returned hosted call. Timeouts retain the reservation. The 30 EUR monthly cap stays.
+Official references: https://developers.openai.com/api/docs/guides/tools-web-search
+and https://developers.openai.com/api/docs/pricing (checked 21 October 2026).
+
+Trading catalyst decisions record a causal case, counterevidence, priced-in
+expectations, invalidation and source limitations before a signal can mature.
+Source snapshots and dossiers are copied into fill-linked signal observations;
+manager reviews use these, not a newer retrospective account. Trader rubric weights:
+25 sources/timing, 25 causal case, 20 counterevidence, 20 risk, 10 uncertain outcomes.
+Research rubric: 35 sources, 35 test design, 30 falsification/learning; no trading
+permission and no penalty for zero orders. Scores remain provisional model judgments.
+Daily mandatory staffing still preserves 25/25/50; fallback ties never rank profit.

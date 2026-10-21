@@ -140,6 +140,12 @@ CREATE TABLE IF NOT EXISTS event_theses(
  summary TEXT NOT NULL,company_context TEXT NOT NULL,available_at TEXT NOT NULL,
  expires_at TEXT NOT NULL,created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_event_theses ON event_theses(agent_id,symbol,created_at);
+CREATE TABLE IF NOT EXISTS web_research(
+ id TEXT PRIMARY KEY,agent_id INTEGER NOT NULL,symbols TEXT NOT NULL,query TEXT NOT NULL,
+ report TEXT NOT NULL,sources TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS ix_web_research ON web_research(agent_id,created_at);
+CREATE TABLE IF NOT EXISTS thesis_dossiers(
+ thesis_id TEXT PRIMARY KEY,payload TEXT NOT NULL,created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_events_agent ON events(agent_id,id);
 CREATE INDEX IF NOT EXISTS ix_jobs_status ON jobs(status,priority,available_at);
 CREATE INDEX IF NOT EXISTS ix_fills_portfolio ON fills(portfolio_id,created_at);

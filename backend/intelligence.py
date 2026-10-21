@@ -117,7 +117,9 @@ class AI:
         with self.db.tx() as c:
             fx=latest_fx(c,at)
             # Bytes bound token count; no cache discount, 30% pricing/FX safety margin.
-            upper=units((Decimal(byte_bound)*input_price+Decimal(output_limit)*output_price)/1_000_000/fx*Decimal('1.30'))
+            from .web_research import WEB_INPUT_BOUND,WEB_FEE_USD
+            web_calls=inputs.get('max_tool_calls',0) if isinstance(inputs,dict) and any(t.get('type')=='web_search' for t in inputs.get('tools',[])) else 0
+            upper=units(((Decimal(byte_bound+web_calls*WEB_INPUT_BOUND)*input_price+Decimal(output_limit)*output_price)/1_000_000+Decimal(WEB_FEE_USD)*web_calls)/fx*Decimal('1.30'))
             local=at.astimezone(BERLIN)
             month=local.replace(day=1,hour=0,minute=0,second=0,microsecond=0).astimezone(timezone.utc).isoformat()
             total=c.execute("SELECT COALESCE(SUM(CASE WHEN status='settled' THEN cost_u ELSE reserved_u END),0) FROM usage WHERE created_at>=?",(month,)).fetchone()[0]
@@ -135,6 +137,10 @@ class AI:
                     reasoning={'effort':'low'},service_tier='default',store=False,include=['reasoning.encrypted_content'])
         if tools:
             params['tools']=tools
+            if any(t.get('type')=='web_search' for t in tools):
+                from .web_research import WEB_CALL_LIMIT
+                params.update(max_tool_calls=WEB_CALL_LIMIT,tool_choice='required')
+                params['include'].append('web_search_call.action.sources')
         if schema:
             params['text']={'format':{'type':'json_schema','name':'agent_decision','schema':schema,'strict':True}}
         rid,fx=self.reserve(kind,model,params,limit,agent_id)
@@ -146,7 +152,9 @@ class AI:
             if usage is None:
                 raise RuntimeError('Provider meldet keine Token-Nutzung')
             input_price,output_price=PRICE_CARDS[model]
-            cost=units((Decimal(usage.input_tokens)*input_price+Decimal(usage.output_tokens)*output_price)/1_000_000/fx)
+            from .web_research import WEB_FEE_USD
+            web_calls=sum(x.type=='web_search_call' for x in response.output)
+            cost=units(((Decimal(usage.input_tokens)*input_price+Decimal(usage.output_tokens)*output_price)/1_000_000+Decimal(WEB_FEE_USD)*web_calls)/fx)
             with self.db.tx() as c:
                 bound=c.execute('SELECT reserved_u FROM usage WHERE id=?',(rid,)).fetchone()[0]
                 c.execute("UPDATE usage SET input_tokens=?,output_tokens=?,cost_u=?,status='settled' WHERE id=?",(usage.input_tokens,usage.output_tokens,cost,rid))
@@ -154,6 +162,7 @@ class AI:
                     from .db import put
                     put(c,'engine_enabled',False)
                     event(c,'budget','Kosten oberhalb Reservierung; KI-Engine gesperrt',level='critical')
+                if web_calls:event(c,'web_search_usage','Web-Toolgebühren konservativ mit abgerechnet',agent_id,data={'usage_id':rid,'web_calls':web_calls,'tool_fee_usd':str(Decimal(WEB_FEE_USD)*web_calls)})
             self.db.integration('openai','connected',f'Echte Responses-Anfrage erfolgreich, Modell {model}; Nutzung gespeichert')
             self.db.set('openai_verified_key_digest',hashlib.sha256(self.cfg.openai_api_key.encode()).hexdigest())
             if response.status!='completed':
@@ -228,7 +237,9 @@ class AI:
                     (agent_id,strategy['id'],dumps(context),dumps({'resume_messages':messages,'receipts':receipts,'turn':turn}),now()))
                 raise
             progress(self.db,agent_id,'analysis','Analysiert Hypothese und Strategie')
-            response=await self.call('agent',messages,agent_id,tools=[TOOLS[0]],schema=decision_model.model_json_schema())
+            from .web_research import WEB_FUNCTION,research_public_web
+            tools=[TOOLS[0]]+([WEB_FUNCTION] if agent.get('approach')=='news' else [])
+            response=await self.call('agent',messages,agent_id,tools=tools,schema=decision_model.model_json_schema())
             calls=[x for x in response.output if x.type=='function_call']
             if not calls:
                 result=decision_model.model_validate_json(response.output_text)
@@ -238,9 +249,12 @@ class AI:
                 args={}
                 try:
                     args=json.loads(call.arguments)
-                    if call.name!='read_fund_data':
+                    if call.name=='research_public_web' and agent.get('approach')=='news':
+                        require_research()
+                        output=await research_public_web(self.db,self.cfg,agent_id,**args)
+                    elif call.name=='read_fund_data':output=read_data(self.db,**args)
+                    else:
                         raise ValueError('Nur Datenabfragen für Research/Trading-Agenten erlaubt')
-                    output=read_data(self.db,**args)
                 except (ValueError,TypeError) as exc:
                     output={'error':str(exc)}
                 receipts.append({'tool':call.name,'args':args,'result':output,'at':now()})
@@ -264,7 +278,11 @@ def agent_context(db,agent_id):
         from .ledger import effective_limits,cash_caps
         risk=effective_limits(c)
         caps=cash_caps(c,pid)
+    from .web_research import research_context
     return dict(as_of=now(),clock=phase(db),portfolio=portfolio,individual_work=assignment,approach=mandate(db,agent_id),
+                execution_eligible=agent['department']!='research',
+                role_note='Forschung kann keine Orders platzieren; Leistung nach Recherche und Tests beurteilen.' if agent['department']=='research' else 'Ausschließlich Paper-Ausführung mit unabhängig geprüften Signalen.',
+                public_web_research=research_context(db,agent_id),
                 company_research={'symbol':company,'news':relevant_news(db,company,12) if company else [],
                     'documents':[{**r,'payload':r['payload'][:12000]} for r in db.all('SELECT * FROM documents WHERE symbol=? ORDER BY received_at DESC LIMIT 2',(company,))],
                     'coverage':'Unternehmensmeldungen und vorhandene Originaldokumente; fehlende Primärberichte/Finanzzahlen nicht erfinden.'},

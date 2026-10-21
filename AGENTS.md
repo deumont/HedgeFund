@@ -111,3 +111,14 @@ Bewertungen/Ergebnisse nutzen; keine Modellantwort erfinden. Offene Positionen
 und Orders verhindern den betroffenen Rollenwechsel; freie Ersatzpaare bevorzugen.
 Passwort-Recovery auf der öffentlichen Website unterstützen; RLS und den privaten
 ATLAS-Mitgliedszugang erhalten. Neue Passwörter setzt der Benutzer selbst.
+
+
+CEO request 21 October 2026: Each of the 50 news/fundamental agents has an individual
+research desk and its own catalyst questions, starter stocks and primary-source
+preferences. Agents conduct actual public web research and monitor every owned
+stock plus their watchlist while trading. Persist consulted source URLs and retrieval
+times; retrieval is never a verified publication time or a fresh trading catalyst.
+Manager assessments prioritize documented pre-execution decision quality over lucky
+profit. Research agents cannot execute orders and are judged on research/tests,
+never penalized for zero trades. Hosted web fees and retrieved tokens count toward
+the existing 30 EUR monthly cap. Paper-only, data and capital gates remain.

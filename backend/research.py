@@ -92,7 +92,9 @@ def agent_research(db,aid,offset=0):
     if current:current['spec']=json.loads(current['spec'])
     draft=db.one('SELECT received_at FROM research_drafts WHERE agent_id=?',(aid,))
     theses=db.all('SELECT * FROM event_theses WHERE agent_id=? ORDER BY created_at DESC LIMIT 10',(aid,))
-    return {'agent':agent,'window':research_window(),'jobs':jobs,'timeline':timeline,'counts':counts,'current_strategy':current,'deferred_analysis':draft,'company_theses':theses,
+    from .web_research import recent_research
+    return {'agent':agent,'public_research':recent_research(db,aid,3),'news_monitor':db.get('agent-news-monitor-'+str(aid)),
+            'execution_eligible':agent['department']!='research','window':research_window(),'jobs':jobs,'timeline':timeline,'counts':counts,'current_strategy':current,'deferred_analysis':draft,'company_theses':theses,
             'offset':offset,'limit':10,'total':sum(counts.values()),'as_of':now()}
 
 

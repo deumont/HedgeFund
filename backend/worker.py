@@ -193,7 +193,7 @@ class Worker:
             symbols=research_symbols(self.db,self.cfg,aid,local,bucket,catalog,headlines)
             symbol=symbols[0] if symbols else 'SPY'
             profile=mandate(self.db,aid)
-            assignment={'work_date':day,'department':agent['department'],'focus':agent['name'],
+            assignment={'work_date':day,'department':agent['department'],'focus':profile.get('focus',agent['name']),
                 'assignment':profile.get('mandate',agent['mandate']),'approach':profile['approach'],'strategy_id':strategy['id'],'symbol':symbol,'research_symbols':symbols}
             # Resume one durable task per individual agent, instead of accumulating
             # a new paid request every hour while that agent is still waiting.
@@ -222,24 +222,30 @@ class Worker:
         from .universe import eligible,active_symbols
         # Runtime news assessment interprets current events; it cannot modify a
         # strategy or run a backtest after the separate research cutoff.
-        news_bucket=int((at or datetime.now(timezone.utc)).timestamp())//900
+        news_bucket=int((at or datetime.now(timezone.utc)).timestamp())//60
         scan_news=getattr(self,'news_bucket',None)!=news_bucket
         self.news_bucket=news_bucket
         for agent in self.db.all("SELECT id FROM agents WHERE department!='research' AND paused=0"):
             aid=agent['id']
             if not scan_news or mandate(self.db,aid)['approach']!='news' or not self.cfg.openai_api_key:continue
-            symbol=self.db.get('agent-stock-'+str(aid))
-            if not symbol:
-                candidates=list(dict.fromkeys(s for n in relevant_news(self.db,limit=40) for s in json.loads(n['symbols']) if eligible(self.db,s)))
-                if candidates:symbol=candidates[(aid-1)%len(candidates)]
-            if not symbol:continue
-            own=relevant_news(self.db,symbol,8)
-            if not own or not any(symbol in json.loads(n['symbols']) for n in own):continue
-            evidence=dumps(own)
+            from .research_desks import watched_symbols
+            symbols=watched_symbols(self.db,aid)
+            checked=now();matched=0
             import hashlib
-            key=f"news-thesis-{aid}-"+hashlib.sha256((symbol+evidence).encode()).hexdigest()[:20]
-            pending=self.db.one("SELECT id FROM jobs WHERE agent_id=? AND kind='news_thesis' AND status IN ('pending','running')",(aid,))
-            if not pending:enqueue(self.db,'news_thesis',{'symbol':symbol},aid,25,dedupe=key)
+            web_hour=news_bucket//60
+            for symbol in symbols:
+                own=relevant_news(self.db,symbol,8)
+                own=[n for n in own if symbol in json.loads(n['symbols'])]
+                matched+=len(own)
+                digest=hashlib.sha256((symbol+dumps(own)).encode()).hexdigest()[:20]
+                # Fresh feed revisions wake assessment even within the same 15m
+                # strategy bar. Hosted web background is cached at most one hour.
+                key=f'news-thesis-{aid}-{symbol}-{web_hour}-{digest}'
+                pending=self.db.all("SELECT payload FROM jobs WHERE agent_id=? AND kind='news_thesis' AND status IN ('pending','running')",(aid,))
+                if not any(json.loads(p['payload']).get('symbol')==symbol for p in pending):
+                    enqueue(self.db,'news_thesis',{'symbol':symbol},aid,25,dedupe=key)
+            self.db.set('agent-news-monitor-'+str(aid),{'checked_at':checked,'symbols':symbols,'relevant_articles':matched,'feed_interval_seconds':60,'web_refresh_seconds':3600,
+                'feed':self.db.one("SELECT status,checked_at FROM integrations WHERE name='news_stream'")})
         for agent in self.db.all("SELECT id FROM agents WHERE department!='research' AND paused=0"):
             aid=agent['id']
             positions=self.db.all('SELECT symbol FROM positions WHERE agent_id=?',(aid,))
@@ -438,6 +444,11 @@ class Worker:
             from .news_agents import mandate
             if mandate(self.db,job['agent_id'])['approach']=='news' and payload.get('symbol'):
                 await asyncio.to_thread(self.providers.company_news,payload['symbol'])
+                require_research()
+                from .web_research import research_public_web
+                from .research_desks import watched_symbols
+                symbols=list(dict.fromkeys(watched_symbols(self.db,job['agent_id'])+payload.get('research_symbols',[payload['symbol']])))
+                await research_public_web(self.db,self.cfg,job['agent_id'],symbols)
                 require_research()
             aid,result=await self.ai.analyze(job['agent_id'])
             agent=self.db.one('SELECT * FROM agents WHERE id=?',(job['agent_id'],))

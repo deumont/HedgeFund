@@ -45,6 +45,20 @@ def research_symbols(db,cfg,aid,at,bucket=0,catalog=None,headlines=None):
     from .news_agents import mandate,EVENTS
     profile=mandate(db,aid);headlines=headlines if headlines is not None else db.all('SELECT headline,symbols FROM news ORDER BY published_at DESC LIMIT 300')
     allowed=set(catalog)
+    if profile['approach']=='news' and profile.get('desk'):
+        desk=profile['desk'];terms=desk['search_terms'].lower().split()
+        owned=[r['symbol'] for r in db.all('SELECT symbol FROM positions WHERE agent_id=?',(aid,))]
+        targeted=[s for r in headlines if any(w in r['headline'].lower() for w in terms) for s in json.loads(r['symbols']) if s in allowed]
+        anchors=[s for s in desk['watchlist'] if s in allowed]
+        discovered=db.get('agent-stock-'+str(aid))
+        scoped=list(dict.fromkeys(owned+([discovered] if discovered in allowed else [])+targeted+anchors))
+        if scoped:
+            start=bucket%len(scoped)
+            chosen=list(dict.fromkeys(owned+[scoped[(start+i)%len(scoped)] for i in range(min(3,len(scoped)))]))[:3]
+            # Thin fixture/catalog coverage can be completed without claiming a
+            # company's sector is known; real scoped names always come first.
+            if len(chosen)>=3:return chosen
+            return (chosen+[s for s in catalog if s not in chosen])[:3]
     event_terms=[word for terms in EVENTS.values() for word in terms]
     mentioned=list(dict.fromkeys(s for r in headlines if profile['approach']!='news' or any(w in r['headline'].lower() for w in event_terms) for s in json.loads(r['symbols']) if s in allowed))
     chosen=[];preferred=db.get('agent-stock-'+str(aid))
