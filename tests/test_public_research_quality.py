@@ -152,7 +152,7 @@ async def test_trading_research_records_original_sources_and_reasoning_before_va
     async def call(self,kind,*a,**kw):
         assert kind=='news_trade'
         return SimpleNamespace(output_text=dumps({'thesis':dict(symbol='AAPL',event_type='company',direction='positive',confidence=.85,evidence_ids=['issuer-1'],summary='Contract revenue may exceed prior expectations.',company_context='Margin contribution uncertain.'),
-            'causal_case':'Award could increase future revenue.','counterevidence':'Customer can cancel.','priced_in':'Compare award with prior guidance.','invalidation':'Cancellation or smaller contract value.','source_limits':'Only issuer announcement; independently unverified.'}))
+            'intent':'enter','target_position_pct':.15,'reduce_fraction':None,'causal_case':'Award could increase future revenue.','counterevidence':'Customer can cancel.','priced_in':'Compare award with prior guidance.','invalidation':'Cancellation or smaller contract value.','source_limits':'Only issuer announcement; independently unverified.'}))
     monkeypatch.setattr('backend.web_research.research_public_web',web);monkeypatch.setattr(AI,'call',call)
     result=await assess_news(db,CFG,76,'AAPL')
     dossier=json.loads(db.one('SELECT payload FROM thesis_dossiers WHERE thesis_id=?',(result['thesis_id'],))['payload'])

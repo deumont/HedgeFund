@@ -265,6 +265,17 @@ def create_app(cfg=None,db=None):
                 'activity':db.all("SELECT f.*,o.reason FROM fills f JOIN orders o ON o.id=f.order_id WHERE f.portfolio_id='fund' AND f.created_at>=? AND f.created_at<? ORDER BY f.created_at DESC",(start,end)),
                 'as_of':now(),'paper_only':True}
 
+    @app.get('/api/calendar')
+    def performance_calendar(month:str|None=None):
+        from .history import calendar_month
+        return calendar_month(db,month)
+
+    @app.get('/api/agents/{aid}/history')
+    def agent_history(aid:int,day:str|None=None,month:str|None=None):
+        if not 1<=aid<=100:raise HTTPException(404,'Agent fehlt')
+        from .history import agent_archive
+        return agent_archive(db,aid,day,month)
+
     @app.get('/api/portfolios')
     def portfolios():
         with db.tx() as c:

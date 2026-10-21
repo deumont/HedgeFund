@@ -180,6 +180,10 @@ class Ledger:
             decision=evaluate_tx(self.db,c,agent_id,symbol,side,at,expected_strategy=preliminary.strategy_id)
             if not decision.valid:
                 raise RiskError(decision.reason)
+            if side=='sell' and decision.observations.get('decision_dossier',{}).get('intent')=='reduce':
+                held=c.execute('SELECT qty FROM positions WHERE agent_id=? AND symbol=?',(agent_id,symbol)).fetchone()
+                fraction=D(str(decision.observations['decision_dossier']['reduce_fraction']))
+                if not held or qty>D(held['qty'])*fraction:raise RiskError('Teilabbau überschreitet belegten Entscheidungsanteil')
             pid = 'fund' if a['department'] == 'fund' else f'demo-{agent_id:03}'
             clock = phase(self.db, at)
             if not clock['trading'] and not (side == 'sell' and clock['liquidating']):
@@ -213,7 +217,8 @@ class Ledger:
                 ask = D(q['ask'])
                 ceiling = D(str(limit_usd)) if order_type == 'limit' else ask*D('1.01')
                 reserve = units(qty*ceiling/fx*(1+D(str(limits['fee_bps']))/10000))
-                if not stop_usd or not D(str(stop_usd)) < ask:
+                optional_stop=meta(c,'paper_sizing_mode')=='strategy' and decision.observations.get('strategy_spec',{}).get('kind')=='event_driven' and decision.observations['strategy_spec'].get('stop_pct') is None
+                if (not stop_usd and not optional_stop) or stop_usd is not None and not D(str(stop_usd)) < ask:
                     raise RiskError("Gültiger Schutzstop unter aktuellem Ask erforderlich")
                 if take_usd is not None and D(str(take_usd)) <= ask:
                     raise RiskError("Take Profit muss über Einstieg liegen")
@@ -252,7 +257,8 @@ class Ledger:
                             bucket += other['reserved_u']
                     if bucket+reserve > equity*limits['max_correlated_pct']:
                         raise RiskError("Konservatives Tech-Korrelationsbudget überschritten")
-                risk = units(qty*(ceiling-D(str(stop_usd)))/fx) + units(qty*ceiling/fx*D('0.001'))
+                # No price stop means full invested capital at risk, never zero risk.
+                risk = units(qty*(ceiling-D(str(stop_usd or 0)))/fx) + units(qty*ceiling/fx*D('0.001'))
                 if risk > capped_limit(caps,'max_loss_per_position_eur',equity*limits['max_loss_per_position_pct']):
                     raise RiskError("Geplantes Stop-Risiko überschritten; Gaps bleiben möglich")
                 total_risk = own_risk = 0
@@ -318,10 +324,15 @@ class Ledger:
             from .signals import evaluate_tx
             decision=evaluate_tx(self.db,c,o['agent_id'],o['symbol'],o['side'],at,
                                  expected_strategy=proof['strategy_id'] if proof else '__missing_proof__')
-            if not proof or not decision.valid:
+            changed_information=False
+            if proof and decision.observations.get('strategy_spec',{}).get('kind')=='event_driven' and not decision.observations.get('exit_condition'):
+                original=json.loads(proof['observations']).get('event_thesis') or {}
+                current=decision.observations.get('event_thesis') or {}
+                changed_information=original.get('id')!=current.get('id')
+            if not proof or not decision.valid or changed_information:
                 c.execute('UPDATE portfolios SET reserved_u=reserved_u-? WHERE id=?',(o['reserved_u'],o['portfolio_id']))
                 c.execute("UPDATE orders SET status='cancelled',reserved_u=0,updated_at=? WHERE id=?",(now(),oid))
-                event(c,'signal_rejected','Keine Ausführung: '+decision.reason,o['agent_id'],level='warning',data={'order_id':oid,'decision_id':decision.id})
+                event(c,'signal_rejected','Keine Ausführung: '+('Informationsentscheidung vor Ausführung geändert' if changed_information else decision.reason),o['agent_id'],level='warning',data={'order_id':oid,'decision_id':decision.id})
                 return None
             clock = phase(self.db, at)
             if not clock['trading'] and not (o['side']=='sell' and clock['liquidating']):
@@ -377,9 +388,10 @@ class Ledger:
                     bucket=sum(x['cost_u'] for x in s['positions'] if x['symbol'] in TECH)+sum(x['reserved_u'] for x in pending if x['symbol'] in TECH)
                     if bucket+cost>equity*limits['max_correlated_pct']:
                         raise RiskError('Korrelationslimit vor Ausführung überschritten')
-                if not D(o['stop_usd'])<raw or o['take_usd'] and D(o['take_usd'])<=raw:
+                optional_stop=meta(c,'paper_sizing_mode')=='strategy' and decision.observations.get('strategy_spec',{}).get('kind')=='event_driven' and decision.observations['strategy_spec'].get('stop_pct') is None
+                if o['stop_usd'] is None and not optional_stop or o['stop_usd'] is not None and not D(o['stop_usd'])<raw or o['take_usd'] and D(o['take_usd'])<=raw:
                     raise RiskError('Schutzpreise durch Kursbewegung vor Ausführung ungeeignet')
-                risk=units(qty*(price-D(o['stop_usd']))/fx)+units(qty*price/fx*D('.001'))
+                risk=units(qty*(price-D(o['stop_usd'] or '0'))/fx)+units(qty*price/fx*D('.001'))
                 total_risk=own_risk=0
                 for item in s['positions']:
                     r=units(D(item['qty'])*max(D(0),D(item['avg_usd'])-D(item['stop_usd']))/fx)
@@ -401,7 +413,7 @@ class Ledger:
                 old_gross = D(pos['qty'])*D(pos['avg_usd'])/D(pos['entry_fx']) if pos else D(0)
                 entryfx = newqty*avg/(old_gross+qty*price/fx)
                 c.execute("INSERT OR REPLACE INTO positions VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                          (pos['id'] if pos else uid(),o['portfolio_id'],o['agent_id'],o['symbol'],str(newqty),str(avg),cost,str(entryfx),o['stop_usd'],o['take_usd'],pos['created_at'] if pos else now()))
+                          (pos['id'] if pos else uid(),o['portfolio_id'],o['agent_id'],o['symbol'],str(newqty),str(avg),cost,str(entryfx),o['stop_usd'] or '0',o['take_usd'],pos['created_at'] if pos else now()))
                 position_id=c.execute('SELECT id FROM positions WHERE portfolio_id=? AND agent_id=? AND symbol=?',(o['portfolio_id'],o['agent_id'],o['symbol'])).fetchone()[0]
                 put(c,'valuation-mark-'+position_id,{'bid':q['bid'],'fx':str(fx),'market_at':q['market_at']})
             else:

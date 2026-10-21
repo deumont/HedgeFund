@@ -4,9 +4,11 @@ from .db import dumps
 
 RUBRIC={
  'traders':{'source_quality_and_timing':25,'causal_case_and_priced_in':25,'counterevidence_and_invalidation':20,'risk_and_execution_discipline':20,'net_outcomes_with_sample_uncertainty':10},
- 'research':{'source_quality_and_timing':35,'test_design_and_out_of_sample_limits':35,'falsification_honesty_and_learning':30},
+ 'research':{'source_quality_and_timing':35,'research_design_and_validation':35,'falsification_honesty_and_learning':30},
  'rules':[
   'Forschung/Warteschlange kann technisch keine Orders platzieren. Null Trades dort sind keine Schwäche; nur Recherche, Tests und Lernen bewerten.',
+  'Historische Trades nach dem damaligen Konto und der damaligen Rolle beurteilen. Ein späterer Abteilungswechsel macht frühere Demo-/Fondstrades nicht zu Forschungsorders.',
+  'Diskretionäre Nachrichten-/Fundamentalagenten haben keine feste algorithmische Strategie. Für sie sind Online-Recherche, Quellenvergleich, Wissen, Gegenargumente und Vorbereitung die Aufgabe; keine Backtests fordern oder für fehlende Backtests abwerten. Technische/regelbasierte Agenten behalten ihre passenden Tests.',
   'Gut belegt, vorausschauend und risikobewusst kann auch bei Verlust eine hohe Bewertung verdienen. Fehlender Beleg ist kein Beweis für eine gute Entscheidung.',
   'Zufallsgewinn und kurzer Glückslauf sind kein Informationsvorteil. Gewinn alleine rechtfertigt keinen hohen Prozessscore oder Aufstieg.',
   'Qualität der konkreten Argumente prüfen, nicht Wortzahl oder bloße Anzahl von Quellen/Trades. Keine nachträglichen Erklärungen als vorherige Motive ausgeben.',
@@ -34,7 +36,7 @@ def quality_evidence(db,aid,day=None):
     from .web_research import recent_research
     day,start,end=window(day)
     agent=db.one('SELECT department FROM agents WHERE id=?',(aid,))
-    trades=db.all("""SELECT f.id,f.side,f.symbol,f.created_at,f.realized_u,s.created_at signal_at,s.observations
+    trades=db.all("""SELECT f.id,f.side,f.symbol,f.portfolio_id,f.created_at,f.realized_u,s.created_at signal_at,s.observations
       FROM fills f LEFT JOIN order_signals os ON os.order_id=f.order_id
       LEFT JOIN signal_decisions s ON s.id=os.signal_id
       WHERE f.agent_id=? AND f.created_at>=? AND f.created_at<? ORDER BY f.created_at DESC LIMIT 4""",(aid,start,end))

@@ -81,6 +81,12 @@ def promotion_ready(db,agent):
     from .intelligence import evaluate
     if agent['department']=='demo':return evaluate(db,agent['id'])['metrics']['eligible']
     if agent['department']!='research':return False
+    from .news_agents import mandate
+    if mandate(db,agent['id'])['approach']=='news':
+        reviews=db.all('SELECT score FROM manager_reviews WHERE agent_id=? ORDER BY created_at DESC LIMIT 3',(agent['id'],))
+        research=db.all("SELECT result FROM analyses WHERE agent_id=?",(agent['id'],))
+        supported=[json.loads(r['result']) for r in research if json.loads(r['result']).get('evidence_ids') and json.loads(r['result']).get('rejected_alternatives')]
+        return len(reviews)>=3 and min(r['score'] for r in reviews)>=7 and len(supported)>=3 and len({r.get('symbol') for r in supported})>=2
     tests=db.all('SELECT symbol,result,data_hash,parameters FROM backtests WHERE agent_id=?',(agent['id'],))
     unique={(t['symbol'],t['data_hash'],t['parameters']):t for t in tests}
     qualifying=[t for t in unique.values() if ((r:=json.loads(t['result']).get('out_of_sample',{})).get('return_pct') or 0)>0 and len(r.get('trades',[]))>=5]
@@ -100,10 +106,12 @@ def staffing_facts(db,cycle,allow_missing=False):
         review=db.one('SELECT score,summary FROM manager_reviews WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(a['id'],))
         from .decision_quality import quality_evidence
         quality=quality_evidence(db,a['id'],day)
+        from .history import performance_history
+        history=performance_history(db,a['id'],day)
         facts.append({**a,'promotion_ready':promotion_ready(db,a),'report_id':report['id'] if report else None,'self_review':report['content'] if report else 'Eigenbericht noch nicht verfügbar; keine Leistung daraus ableiten.',
             'manager_score':review['score'] if review else None,
             'manager_reason':review['summary'] if review else None,'execution_eligible':a['department']!='research',
-            'decision_quality':quality,
+            'decision_quality':quality,'past_performance':history,
             'metrics':{k:metrics.get(k) for k in ('closed_trades','days','realized_eur','research_tests','eligible','latest_research_oos')}})
     return facts
 
@@ -116,7 +124,9 @@ def fallback_pair(db,facts,day):
     candidates=[f for f in facts if f['id'] in active and f['id'] not in busy|pending]
     def score(f):
         # A short lucky P&L run is never a tie breaker for staffing.
-        return (f['manager_score'] if f['manager_score'] is not None else 5,bool(f['promotion_ready']))
+        old=[r['score'] for r in f.get('past_performance',{}).get('recent_reviews',[])]
+        sustained=sum(old)/len(old) if old else f['manager_score'] if f['manager_score'] is not None else 5
+        return (sustained,f['manager_score'] if f['manager_score'] is not None else 5,bool(f['promotion_ready']))
     for lower,upper in [('demo','fund'),('research','demo')]:
         ups=sorted((f for f in candidates if f['department']==lower),key=lambda f:(score(f),-(f['id']-datetime.fromisoformat(day).date().toordinal())%100),reverse=True)
         downs=sorted((f for f in candidates if f['department']==upper),key=lambda f:(score(f),(f['id']-datetime.fromisoformat(day).date().toordinal())%100))
@@ -138,11 +148,15 @@ async def decide_daily(db,cfg,day):
     for f in facts:
         q=f['decision_quality'];cases=q['pretrade_cases'][:1]
         sample=cases[0].get('decision_dossier') or {} if cases else {}
-        compact.append({k:f.get(k) for k in ('id','name','department','approach','focus','promotion_ready','report_id','manager_score','manager_reason','execution_eligible')}|
-            {'self_review':f['self_review'][:300],'metrics':f['metrics'],
-             'quality':{'pretrade_cases':len(q['pretrade_cases']),'research_analyses':len(q['research_analyses']),'tests':q['strategy_tests'],
-                        'causal_case':sample.get('causal_case','')[:350],'counterevidence':sample.get('counterevidence','')[:200],
-                        'invalidation':sample.get('invalidation','')[:150]}})
+        history=f['past_performance']
+        compact.append({k:f.get(k) for k in ('id','department','approach','promotion_ready','report_id','manager_score','execution_eligible')}|
+            {'self_review':f['self_review'][:120],'manager_reason':(f['manager_reason'] or '')[:120],
+             'history':{'roles':[{k:r[k] for k in ('department','closed_trades','realized_eur','trading_days')} for r in history['roles']],
+                        'review_scores':[r['score'] for r in history['recent_reviews']],
+                        'last_roles':[r['department'] for r in history['career']['periods'][-3:]],
+                        'earlier_report':history['previous_reports'][0]['content'][:120] if history['previous_reports'] else None},
+             'quality':{'prior_cases':len(q['pretrade_cases']),'analyses':len(q['research_analyses']),'tests':history['research_tests'],
+                        'causal_case':sample.get('causal_case','')[:160],'counterevidence':sample.get('counterevidence','')[:120]}})
     selection_method='model'
     try:
         if required and (not cfg.openai_api_key or not db.get('engine_enabled')):raise ValueError('KI nicht verfügbar')
@@ -151,6 +165,7 @@ async def decide_daily(db,cfg,day):
         'experiments':'Zufallseinstiege sind bei experimentellen Agenten ausdrücklich erlaubt. Beurteile reale Nettoperformance, Kosten, Verluste und Stichprobengröße. Eine kurze Glücksserie ist kein belegter Prognosevorteil; nicht allein wegen des Ansatzes abwerten.',
         'mandatory_policy':('Mindestens ein begründetes benachbartes Tauschpaar ist heute vorgeschrieben. Kleine Stichproben als Erprobung kennzeichnen; promotion_ready ist ein Evidenzhinweis und heute keine Pflichtschwelle. Keine reinen HOLD-Abwertungen.' if required else 'Nur bei ausreichender Evidenz wechseln.'),
         'decision_quality_policy':RUBRIC,
+        'past_performance_policy':'Entscheidungen und Bericht müssen die gesamte belegte Laufbahn und Leistung über frühere Tage berücksichtigen. Rollen/Kapitalbasis getrennt vergleichen, Entwicklung und wiederkehrende Schwächen benennen; heutiger Glücksgewinn alleine reicht nicht. Diskretionäre Nachrichtenagenten recherchieren statt verpflichtender Backtests.',
         'date':day,'agents':compact})}],schema=Staffing.model_json_schema())
         plan=Staffing.model_validate_json(response.output_text)
     except Exception:

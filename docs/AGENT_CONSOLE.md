@@ -158,3 +158,50 @@ manager reviews use these, not a newer retrospective account. Trader rubric weig
 Research rubric: 35 sources, 35 test design, 30 falsification/learning; no trading
 permission and no penalty for zero orders. Scores remain provisional model judgments.
 Daily mandatory staffing still preserves 25/25/50; fallback ties never rank profit.
+
+
+## Calendar, career and historical manager evidence
+
+Calendar days use Europe/Berlin boundaries including DST, the previous saved fund
+valuation and that day's latest valuation. Unknown/incomplete endpoints and gaps
+remain null, not invented zero returns. Realized fund fills are separate; demo
+results do not affect fund P&L. Deposits/withdrawals are removed from valuation
+changes, excluding initial virtual capital from the flow adjustment. Days remain
+provisional without a post-personal-close mark. Tagesbeste means highest LAST
+manager rating for that day (0-10), with ties and no fabricated winner.
+
+GET calendar?month=YYYY-MM and agents/{id}/history?day=YYYY-MM-DD&month=YYYY-MM
+are authenticated locally and synchronized on demand through the existing private
+Supabase bridge. Existing RLS and command restrictions remain. History includes
+daily trades, analyses, web research, strategy changes, cancellations and applied
+team changes, with initial/applied career intervals. Role-history gaps are labeled.
+Original fill portfolio IDs survive role changes. Historical profiles and reviews
+use that day's role/time; current positions never appear as past holdings.
+
+Managers receive cumulative per-role outcomes, trading sample sizes, recent
+daily manager ratings, previous daily reports and career changes in reviews,
+self-reports, daily staffing and data tools. Fallback staffing compares sustained
+manager ratings rather than lucky P&L. Context excerpts are explicitly bounded;
+all original records stay stored.
+
+## Discretionary information management
+
+The 50 news agents now use online research preparation instead of auto-queued
+backtests. Pending automatic studies are superseded, completed studies preserved.
+Rules-based/experimental agents retain their appropriate tests. Event-study
+holding_bars is only a research reference under exit_mode=information; it does
+not force an exit. Existing news strategies upgrade during the research window.
+
+CatalystDecision persists intent enter/add/hold/reduce/exit, target allocation,
+partial-exit fraction and prior causal/source dossier. Availability is still at
+least 15 minutes; fresh company-linked event sources and suitable execution
+quotes remain mandatory. A political post never unconditionally triggers a trade.
+Same-source re-buy/add is rejected. Each thesis/action is consumed once by fills.
+
+Event strategies can choose nullable stop_pct and take_profit_pct. Optional
+price stops are accepted only in the authorized internal strategy paper mode.
+The legacy NOT NULL positions.stop_usd field uses '0' solely as the no-price-stop
+marker; no order is submitted with a zero stop price. Risk calculations charge
+full capital at risk when absent. Signal exits, cash/exposure checks, reservations,
+25% agent capital cap, kill/portfolio protections and session-end liquidation stay
+independent. Technical cohorts retain their stored rule gates and protective stops.

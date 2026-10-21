@@ -122,3 +122,24 @@ Manager assessments prioritize documented pre-execution decision quality over lu
 profit. Research agents cannot execute orders and are judged on research/tests,
 never penalized for zero trades. Hosted web fees and retrieved tokens count toward
 the existing 30 EUR monthly cap. Paper-only, data and capital gates remain.
+
+
+Latest CEO requests 21 October 2026: Add a daily calendar with signed fund P&L
+and the day's best manager-rated agent(s), explicitly distinguishing valuation
+changes, realized P&L, provisional/missing marks and tied ratings. Every agent
+needs selectable past days, trades/actions/reports and a full career reconstructed
+from the initial roster and actually applied role changes. Historical fills retain
+their original fund/demo account after promotion/demotion. Manager assessments,
+reports and staffing must consider prior days and role-separated lifetime results.
+
+Discretionary news/fundamental agents prepare by researching public information,
+learning, reading sources and tracking events; no automatic backtests or penalty
+for missing backtests. Preserve historical studies. Technical/rule-based cohorts
+keep their backtests. Information traders may hold longer, add on new source-backed
+information, reduce partially or exit. Fixed price stops and take profits are
+optional in the authorized internal strategy-sizing paper mode; no stop means
+full invested capital at risk. No forced time exit unless explicitly selected.
+Existing session end liquidation, at least 15m availability, appropriate execution
+data, independent signal/risk checks and 25% total exposure per agent remain.
+An information decision is consumed once per action; no repeated add/reduce loop
+and no repeated buying on unchanged source evidence. No real money.

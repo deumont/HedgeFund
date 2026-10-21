@@ -70,7 +70,7 @@ export async function cloudApi(rawPath:string,body?:any):Promise<any>{
  if(data.missing)return command(path,'GET')
  const payload=data.payload??old?.payload
  if(payload===undefined)throw new Error('Cloud-Snapshot fehlt')
- if((/^agents\/\d+$/.test(path)||['trading-floor','closeout'].includes(path)||path==='team'||path.startsWith('team?')||path.startsWith('research'))&&data.heartbeat&&Date.now()-Date.parse(data.heartbeat)<90000&&Date.now()-Date.parse(data.captured_at)>15000){
+ if((/^agents\/\d+(?:\/history.*)?$/.test(path)||path.startsWith('calendar')||['trading-floor','closeout'].includes(path)||path==='team'||path.startsWith('team?')||path.startsWith('research'))&&data.heartbeat&&Date.now()-Date.parse(data.heartbeat)<90000&&Date.now()-Date.parse(data.captured_at)>15000){
   return command(path,'GET')
  }
  cache.set(path,{etag:data.etag,payload})

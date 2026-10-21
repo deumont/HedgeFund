@@ -19,6 +19,12 @@ def plan_order(db, agent_id, symbol, side, at=None):
         if side == 'sell':
             if not position:
                 raise RiskError('Keine gedeckte Position')
+            from .signals import evaluate_tx
+            decision=evaluate_tx(db,c,agent_id,symbol,side,at)
+            dossier=decision.observations.get('decision_dossier',{})
+            if decision.valid and dossier.get('intent')=='reduce':
+                fraction=D(str(dossier['reduce_fraction']))
+                return dict(qty=str((D(position['qty'])*fraction).quantize(D('.000001'),rounding=ROUND_DOWN)))
             return dict(qty=position['qty'])
         limits = effective_limits(c)
         quote = valid_quote(c, symbol, limits, at)
@@ -29,7 +35,10 @@ def plan_order(db, agent_id, symbol, side, at=None):
         strategy = c.execute('SELECT spec FROM strategies WHERE agent_id=? ORDER BY version DESC LIMIT 1', (agent_id,)).fetchone()
         spec = json.loads(strategy['spec'])
         ask = D(quote['ask'])
-        stop = ask * (1 - D(str(spec['stop_pct'])))
+        stop = ask * (1 - D(str(spec['stop_pct']))) if spec.get('stop_pct') is not None else D(0)
+        from .signals import evaluate_tx
+        decision=evaluate_tx(db,c,agent_id,symbol,side,at)
+        target=decision.observations.get('decision_dossier',{}).get('target_position_pct')
         ceiling = ask * D('1.01')
         cost_per_share = ceiling / fx * (1 + D(str(limits['fee_bps'])) / 10000)
         risk_per_share = (ceiling - stop + ceiling * D('.001')) / fx
@@ -50,7 +59,8 @@ def plan_order(db, agent_id, symbol, side, at=None):
             # Same allocation parameter as the historical simulation; no trade quota.
             from .backtest import validate_spec
             validate_spec(spec)
-            cash_budgets.append(equity*spec.get('position_pct',1.0)-own)
+            allocation=target if spec.get('kind')=='event_driven' and target is not None else spec.get('position_pct',1.0)
+            cash_budgets.append(equity*min(.25,allocation)-own)
         if symbol in TECH:
             bucket = sum(p['cost_u'] for p in positions if p['symbol'] in TECH)
             bucket += sum(p['reserved_u'] for p in pending if p['symbol'] in TECH)
@@ -76,4 +86,5 @@ def plan_order(db, agent_id, symbol, side, at=None):
         qty = qty.quantize(D('.000001'), rounding=ROUND_DOWN)
         if not qty.is_finite() or qty <= 0:
             raise RiskError('Kein freies Kapital-/Risikobudget oder keine sichtbare Liquidität')
-        return dict(qty=str(qty), stop_usd=str(stop), take_usd=str(ask + (ask - stop) * 2))
+        take=(ask*(1+D(str(spec['take_profit_pct']))) if spec.get('take_profit_pct') is not None else None) if spec.get('kind')=='event_driven' else ask+(ask-stop)*2
+        return dict(qty=str(qty),stop_usd=str(stop) if stop else None,take_usd=str(take) if take else None)

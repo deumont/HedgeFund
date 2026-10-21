@@ -11,7 +11,7 @@ from .config import now
 from .db import uid,dumps
 from .providers import safe_error
 
-BASE_PATHS=['overview','agents','system','trading-floor','closeout','research','research-roster','team','portfolios','portfolio/fund','chats','data/jobs',
+BASE_PATHS=['overview','agents','system','trading-floor','calendar','closeout','research','research-roster','team','portfolios','portfolio/fund','chats','data/jobs',
             'data/news','data/strategies','data/orders_all','data/decisions','data/quotes','data/broker']
 DATASETS={'fund','agents','agent_detail','fills','orders','news','events','analyses','backtests','strategies',
           'decisions','evaluations','risk','usage','documents','quotes','bars','memories','agent_equity',
@@ -23,11 +23,16 @@ def allowed_path(method,path):
         return False
     parsed=urlsplit(path)
     params=parse_qsl(parsed.query,keep_blank_values=True)
-    if any(k not in ('agent_id','offset') or not v.isdigit() or int(v)>1000000 for k,v in params):
-        return False
     clean=parsed.path
+    keys=[k for k,v in params]
+    if len(keys)!=len(set(keys)):return False
+    for k,v in params:
+        if k in ('agent_id','offset') and v.isdigit() and int(v)<=1000000:continue
+        if method=='GET' and k=='month' and (clean=='calendar' or re.fullmatch(r'agents/(?:[1-9][0-9]?|100)/history',clean)) and re.fullmatch(r'20\d{2}-(?:0[1-9]|1[0-2])',v):continue
+        if method=='GET' and k=='day' and re.fullmatch(r'agents/(?:[1-9][0-9]?|100)/history',clean) and re.fullmatch(r'20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])',v):continue
+        return False
     if method=='GET':
-        return (clean in BASE_PATHS or bool(re.fullmatch(r'(?:research/)?agents/(?:[1-9][0-9]?|100)|portfolio/(?:fund|demo-[0-9]{3})|jobs/[a-f0-9-]{36}',clean))
+        return (clean in BASE_PATHS or bool(re.fullmatch(r'(?:research/)?agents/(?:[1-9][0-9]?|100)(?:/history)?|portfolio/(?:fund|demo-[0-9]{3})|jobs/[a-f0-9-]{36}',clean))
                 or clean.startswith('data/') and clean[5:] in DATASETS)
     return method=='POST' and not params and (clean in ('chat','task','action','evaluate','broker/submit') or
            bool(re.fullmatch(r'agents/(?:[1-9][0-9]?|100)/report|(?:orders|broker)/[a-f0-9-]{36}/cancel|jobs/[a-f0-9-]{36}/retry|decisions/[a-f0-9-]{36}/confirm',clean)))

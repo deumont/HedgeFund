@@ -93,7 +93,7 @@ def test_morning_assigns_each_agent_multiple_stocks_and_coalesces_old_backlog(db
     assert all(len(json.loads(j['payload'])['research_symbols'])==3 for j in pending)
     assert sum(json.loads(j['payload'])['approach']=='news' for j in pending)==50
     tests=db.all("SELECT * FROM jobs WHERE kind='backtest'")
-    assert len(tests)==300 and any(json.loads(t['payload'])['symbol']!='SPY' for t in tests)
+    assert len(tests)==150 and all(t['agent_id'] not in set(range(26,50))|set(range(61,74))|set(range(76,89)) for t in tests) and any(json.loads(t['payload'])['symbol']!='SPY' for t in tests)
     assert db.one("SELECT COUNT(*) n FROM strategies WHERE json_extract(spec,'$.kind')='event_driven'")['n']==50
     assert not db.all('SELECT * FROM orders')
 

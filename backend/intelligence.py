@@ -226,7 +226,7 @@ class AI:
         from .news_agents import NewsDecision
         decision_model=NewsDecision if agent.get('approach')=='news' else ExperimentDecision if agent.get('approach')=='experimental' else AgentDecision
         messages=[{'role':'user','content':dumps({'profile':agent,'strategy':strategy,
-             'context':context,'task':'Entwickle eine prüfbare Hypothese. Prüfe Datenlücken und Alternativen. Alle Agenten dürfen gemeinsame Daten über read_fund_data abfragen. Wähle hold/research bei fehlender Evidenz. Wähle position_pct anhand deiner Strategie und Backtests innerhalb der effektiven Kontext-Limits und des verfügbaren virtuellen Kapitals; beachte Stops. Vorschläge als sichere DSL; kein Python ausführen.'})}]
+             'context':context,'task':'Entwickle eine prüfbare Hypothese. Prüfe Datenlücken und Alternativen. Alle Agenten dürfen gemeinsame Daten über read_fund_data abfragen. Nachrichtenagenten arbeiten diskretionär: selbst online recherchieren, Wissen aufbauen, Unternehmen und Weltlage verstehen, Quellen vergleichen und auf Market Open vorbereiten. Für sie keine Backtests oder festen Preis-Einstiege verlangen; proposed_strategy kann null bleiben oder den Handelsrahmen mit optionalem Stop/Take-Profit und Informationsausstieg beschreiben. Technische Agenten prüfen ihre festen Regeln mit geeigneten Backtests. Wähle hold/research bei fehlender Evidenz. Kapital insgesamt maximal 25% pro Agent, geeignete Daten und mindestens 15-Minuten-Zeitrahmen. Vorschläge als sichere DSL; kein Python ausführen.'})}]
         receipts=[]
         if resume:messages=resume['resume_messages'];receipts=resume['receipts']
         for turn in range(resume.get('turn',0) if resume else 0,4):
@@ -236,7 +236,7 @@ class AI:
                 with self.db.tx() as c:c.execute('INSERT OR REPLACE INTO research_drafts VALUES(?,?,?,?,?)',
                     (agent_id,strategy['id'],dumps(context),dumps({'resume_messages':messages,'receipts':receipts,'turn':turn}),now()))
                 raise
-            progress(self.db,agent_id,'analysis','Analysiert Hypothese und Strategie')
+            progress(self.db,agent_id,'analysis','Recherchiert Quellen, Unternehmenslage und Gegenargumente' if agent.get('approach')=='news' else 'Analysiert Hypothese und Strategie')
             from .web_research import WEB_FUNCTION,research_public_web
             tools=[TOOLS[0]]+([WEB_FUNCTION] if agent.get('approach')=='news' else [])
             response=await self.call('agent',messages,agent_id,tools=tools,schema=decision_model.model_json_schema())
@@ -279,10 +279,12 @@ def agent_context(db,agent_id):
         risk=effective_limits(c)
         caps=cash_caps(c,pid)
     from .web_research import research_context
+    from .history import performance_history,compact_history
     return dict(as_of=now(),clock=phase(db),portfolio=portfolio,individual_work=assignment,approach=mandate(db,agent_id),
                 execution_eligible=agent['department']!='research',
                 role_note='Forschung kann keine Orders platzieren; Leistung nach Recherche und Tests beurteilen.' if agent['department']=='research' else 'Ausschließlich Paper-Ausführung mit unabhängig geprüften Signalen.',
                 public_web_research=research_context(db,agent_id),
+                past_performance=compact_history(performance_history(db,agent_id)),
                 company_research={'symbol':company,'news':relevant_news(db,company,12) if company else [],
                     'documents':[{**r,'payload':r['payload'][:12000]} for r in db.all('SELECT * FROM documents WHERE symbol=? ORDER BY received_at DESC LIMIT 2',(company,))],
                     'coverage':'Unternehmensmeldungen und vorhandene Originaldokumente; fehlende Primärberichte/Finanzzahlen nicht erfinden.'},
@@ -456,7 +458,7 @@ def apply_rotations(db,at=None):
 
 TOOLS=[{'type':'function','name':'read_fund_data','description':'Liest echte gespeicherte Fonds-/Agentendaten. Zeitlich sortierte, paginierte Daten. Keine SQL-Eingaben.',
         'strict':True,'parameters':{'type':'object','properties':{
-            'dataset':{'type':'string','enum':['fund','agents','agent_detail','stocks','fills','orders','news','events','analyses','backtests','strategies','decisions','evaluations','risk','usage','documents','quotes','bars','memories','agent_equity','signal_decisions']},
+            'dataset':{'type':'string','enum':['fund','agents','agent_detail','performance_history','calendar','stocks','fills','orders','news','events','analyses','backtests','strategies','decisions','evaluations','risk','usage','documents','quotes','bars','memories','agent_equity','signal_decisions']},
             'agent_id':{'type':['integer','null']},'offset':{'type':'integer'}},
             'required':['dataset','agent_id','offset'],'additionalProperties':False}},
        {'type':'function','name':'propose_admin_action','description':'Nur vormerken, niemals ausführen: Agent pausieren/fortsetzen oder Tausch für nächsten Handelstag. CEO muss separat bestätigen.',
@@ -482,6 +484,13 @@ def read_data(db,dataset,agent_id=None,offset=0):
                     'kill_switch':db.get('kill_switch'),'confirmed':db.get('risk_confirmed'),'clock':phase(db),'as_of':now()}
     if dataset=='agent_detail':
         return agent_context(db,agent_id)
+    if dataset=='performance_history':
+        from .history import performance_history,compact_history
+        if agent_id is None:raise ValueError('Agent für Laufbahn/Leistung erforderlich')
+        return compact_history(performance_history(db,agent_id))
+    if dataset=='calendar':
+        from .history import calendar_month
+        return calendar_month(db)
     if dataset=='agents':
         return db.all('SELECT * FROM agents ORDER BY id LIMIT 100 OFFSET ?',(offset,))
     if dataset=='quotes':

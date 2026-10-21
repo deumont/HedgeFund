@@ -207,6 +207,11 @@ class Worker:
                             c.execute("UPDATE jobs SET status='superseded',error='Doppelter Forschungsauftrag durch individuellen Tagesauftrag ersetzt',updated_at=? WHERE id=?",(now(),duplicate['id']))
             if not jobs:
                 enqueue(self.db,'analysis',assignment,aid,60,dedupe=f'analysis-{day}-morning-{bucket}-{aid}')
+            if profile['approach']=='news':
+                # Discretionary agents study public information, not a fictional
+                # fixed-rule backtest. Preserve completed historical studies.
+                with self.db.tx() as c:c.execute("UPDATE jobs SET status='superseded',error='Diskretionärer Informationshandel: Online-Recherche statt automatischer Backtests',updated_at=? WHERE agent_id=? AND kind='backtest' AND status='pending'",(now(),aid))
+                continue
             for stock in symbols:
                 pending=self.db.all("SELECT payload FROM jobs WHERE agent_id=? AND kind='backtest' AND status IN ('pending','running')",(aid,))
                 if not any(json.loads(p['payload']).get('strategy_id')==strategy['id'] and json.loads(p['payload']).get('symbol')==stock for p in pending):
@@ -255,12 +260,17 @@ class Worker:
             if mandate(self.db,aid)['approach']=='news':
                 thesis=self.db.one('SELECT symbol FROM event_theses WHERE agent_id=? ORDER BY created_at DESC LIMIT 1',(aid,))
                 if thesis:preferred=thesis['symbol']
-            symbols=[p['symbol'] for p in positions] or [preferred or candidates[(aid-1)%len(candidates)]] if candidates else []
+            owned={p['symbol'] for p in positions}
+            candidate=preferred or (candidates[(aid-1)%len(candidates)] if candidates else None)
+            symbols=list(dict.fromkeys([p['symbol'] for p in positions]+([candidate] if candidate else [])))
             for symbol in symbols:
-                side='sell' if positions else 'buy'
+                side='sell' if symbol in owned else 'buy'
                 decision=self.signals.evaluate(aid,symbol,side,at)
                 if decision.valid:
                     self.execute_signal(aid,symbol,side,decision,at)
+                elif symbol in owned and mandate(self.db,aid)['approach']=='news':
+                    addition=self.signals.evaluate(aid,symbol,'buy',at)
+                    if addition.valid:self.execute_signal(aid,symbol,'buy',addition,at)
 
     def execute_signal(self,aid,symbol,side,decision,at=None):
         from .execution import plan_order
@@ -467,7 +477,7 @@ class Worker:
             self.db.event('trading_decision',final_reason,job['agent_id'],data={'analysis_id':aid,'proposed_action':result.action,'final_action':final_action,'order_id':order_id})
             # Test every new candidate; jobs fail visibly when data coverage is insufficient.
             strategy=self.db.one('SELECT * FROM strategies WHERE agent_id=? ORDER BY version DESC LIMIT 1',(job['agent_id'],))
-            if strategy['status']=='candidate' and self.cfg.symbols:
+            if strategy['status']=='candidate' and self.cfg.symbols and mandate(self.db,job['agent_id'])['approach']!='news':
                 from .universe import eligible
                 symbol=result.symbol if eligible(self.db,result.symbol) else self.cfg.symbols[job['agent_id']%len(self.cfg.symbols)]
                 enqueue(self.db,'backtest',{'strategy_id':strategy['id'],'symbol':symbol},job['agent_id'],45,dedupe='test-'+strategy['id']+'-'+symbol)

@@ -59,7 +59,7 @@ def evaluate_tx(db,c,agent_id,symbol,side='buy',at=None,expected_strategy=None):
             raise ValueError('Agent pausiert oder außerhalb seiner Handelssitzung')
         if side=='sell' and not (clock['trading'] or clock['liquidating']):
             raise ValueError('Keine erlaubte Ausführungssitzung')
-        if side=='buy' and position:
+        if side=='buy' and position and not (spec.get('kind')=='event_driven' and spec.get('allow_additions')):
             raise ValueError('Bestehende Position: kein erzwungenes Nachkaufen/Pyramiding')
         if side=='sell' and not position:
             raise ValueError('Keine Position zum Schließen')
@@ -170,6 +170,7 @@ def record(c,agent_id,symbol,side,strategy_id,tf,valid,reason,observations,at):
     # Persist every distinct decision state; identical monitoring polls do not invent new actions.
     material={'agent':agent_id,'symbol':symbol,'side':side,'strategy':strategy_id,'valid':valid,
               'reason':reason,'bar_hash':observations.get('bar_hash'),'position':observations.get('position_id'),
+              'information_thesis':(observations.get('event_thesis') or {}).get('id'),
               'bucket':int(at.timestamp())//900}
     dedupe=hashlib.sha256(dumps(material).encode()).hexdigest()
     existing=c.execute('SELECT id FROM signal_decisions WHERE dedupe=?',(dedupe,)).fetchone()

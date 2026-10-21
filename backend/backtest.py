@@ -17,6 +17,7 @@ def validate_spec(spec):
         raise ValueError('Strategie-Zeitrahmen mindestens 15 Minuten, in 15-Minuten-Schritten')
     if spec.get('kind')=='event_driven':
         from .news_agents import EventStrategy
+        for key,value in {'take_profit_pct':None,'exit_mode':'horizon','allow_additions':False}.items():spec.setdefault(key,value)
         EventStrategy.model_validate(spec)
         return spec
     if spec.get('kind')=='random_entry':
