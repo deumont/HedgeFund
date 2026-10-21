@@ -30,7 +30,7 @@ async def test_agent_authored_report_persists_once_with_exact_trade_proof(db,mon
     await write_report(db,cfg,76,AT.date().isoformat())
     await write_report(db,cfg,76,AT.date().isoformat())
     view=day_view(db,76,AT.date().isoformat())
-    assert len(calls)==1 and view['report']['model']=='gpt-6.1-sol'
+    assert len(calls)==1 and view['report']['model']=='gpt-6-luna'
     assert view['actions'][0]['id']==fill['id']
 
 

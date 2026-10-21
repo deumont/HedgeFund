@@ -143,3 +143,5 @@ Existing session end liquidation, at least 15m availability, appropriate executi
 data, independent signal/risk checks and 25% total exposure per agent remain.
 An information decision is consumed once per action; no repeated add/reduce loop
 and no repeated buying on unchanged source evidence. No real money.
+
+Latest explicit CEO override 21 October 2026: Technical-analysis agents use gpt-6-luna in every department, including research; resolve approach at each request. Other research agents retain gpt-5.4-mini, other demo/fund agents gpt-6.1-sol and manager gpt-5.4-mini. Remove the local API spending stop, including the previous 30 EUR monthly cap. API_SPEND_LIMIT_ENABLED=false is the default and deployed configuration. Keep actual cost and uncertain reservation accounting; never fabricate or clear historical usage. Resume latest locally budget-blocked work, consolidate redundant old blocked jobs, never replay uncertain provider calls or broker submissions. Provider rate/quota pauses, research hours, paper-only and all trading capital/data gates remain.

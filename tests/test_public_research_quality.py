@@ -65,7 +65,7 @@ def test_web_tool_cost_and_retrieved_tokens_are_reserved_atomically(db,monkeypat
     plain,_=ai.reserve('agent','gpt-5.4-mini',{},2400,26)
     web,_=ai.reserve('web_research','gpt-5.4-mini',{'tools':[WEB_TOOL],'max_tool_calls':WEB_CALL_LIMIT},2400,26)
     assert db.one('SELECT reserved_u FROM usage WHERE id=?',(web,))['reserved_u']>db.one('SELECT reserved_u FROM usage WHERE id=?',(plain,))['reserved_u']+units('.17')
-    low=Settings(_env_file=None,openai_api_key='fixture',monthly_budget_eur='.1')
+    low=Settings(_env_file=None,openai_api_key='fixture',monthly_budget_eur='.1',api_spend_limit_enabled=True)
     with pytest.raises(BudgetError):AI(db,low).reserve('web_research','gpt-5.4-mini',{'tools':[WEB_TOOL],'max_tool_calls':WEB_CALL_LIMIT},2400,26)
 
 def test_monitor_covers_every_owned_stock_and_watchlist_new_news_wakes_within_same_bar(db,monkeypatch):

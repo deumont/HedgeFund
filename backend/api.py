@@ -77,6 +77,8 @@ def create_app(cfg=None,db=None):
         from .cloud import CloudBridge
         from .providers import Providers
         from .management import ManagementService
+        from .budget import resume_spend_blocked_jobs
+        resume_spend_blocked_jobs(db,cfg)
         stop=asyncio.Event()
         cloud=asyncio.create_task(CloudBridge(db,cfg).run(stop))
         provider=Providers(db,cfg)
@@ -488,10 +490,10 @@ def create_app(cfg=None,db=None):
                 'disk_free_gb':disk.free/1e9,'integrations':db.all('SELECT * FROM integrations ORDER BY name'),
                 'worker_heartbeat':db.get('worker_heartbeat'),'engine_enabled':db.get('engine_enabled'),
                 'queue':db.all('SELECT status,COUNT(*) count FROM jobs GROUP BY status'),
-                'usage':usage,'budget_monthly_eur':float(cfg.monthly_budget_eur),'budget_daily_eur':None,**totals,
+                'usage':usage,'budget_monthly_eur':float(cfg.monthly_budget_eur) if cfg.api_spend_limit_enabled else None,'api_spend_limit_enabled':cfg.api_spend_limit_enabled,'budget_daily_eur':None,**totals,
                 'risk':active_risk,'fund_cash_limits':active_caps,'paper_sizing_mode':db.get('paper_sizing_mode','capped'),'risk_confirmed':db.get('risk_confirmed'),
                 'configured':{'openai':bool(cfg.openai_api_key),'alpaca':cfg.has_alpaca,'sec':bool(cfg.sec_user_agent)},
-                'model':cfg.openai_model,'research_model':cfg.openai_research_model,'manager_model':cfg.openai_manager_model,'feed':cfg.alpaca_feed,
+                'model':cfg.openai_model,'technical_model':cfg.openai_technical_model,'research_model':cfg.openai_research_model,'manager_model':cfg.openai_manager_model,'feed':cfg.alpaca_feed,
                 'agent_approaches':db.all('SELECT approach,COUNT(*) count FROM agent_mandates GROUP BY approach'),
                 'stock_universe':{'tradable_count':db.one("SELECT COUNT(*) n FROM assets WHERE tradable=1 AND asset_class='us_equity'")['n'],
                                   'data_scope':'Alpaca US-Aktien/ETFs; Daten nach Bedarf, IEX ist kein Gesamtmarktfeed'},

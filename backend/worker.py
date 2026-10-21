@@ -40,6 +40,8 @@ class Worker:
         self.backup_dir=ROOT/'backups'
 
     async def run(self):
+        from .budget import resume_spend_blocked_jobs
+        resume_spend_blocked_jobs(self.db,self.cfg)
         # PID identity + heartbeat guard against accidentally launching a second worker.
         import psutil
         with self.db.tx() as c:

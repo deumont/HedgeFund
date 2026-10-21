@@ -55,7 +55,7 @@ async def test_real_sdk_response_contract_persists_usage_memory_strategy(db,monk
     assert seen[0]['store'] is False
     assert seen[0]['include']==['reasoning.encrypted_content']
     assert seen[0]['text']['format']['strict'] is True
-    assert seen[0]['model']=='gpt-5.4-mini'
+    assert seen[0]['model']=='gpt-6-luna'
     assert seen[0]['service_tier']=='default'
 
 

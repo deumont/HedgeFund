@@ -13,6 +13,7 @@ from backend.worker import enqueue
 CFG=Settings(_env_file=None,openai_api_key='fixture')
 
 def test_models_follow_promotions_and_demotions_in_both_directions(db):
+    with db.tx() as c:c.execute("UPDATE agent_mandates SET approach='news'")
     assert agent_model(db,CFG,1)=='gpt-5.4-mini'
     assert agent_model(db,CFG,51)==agent_model(db,CFG,76)=='gpt-6.1-sol'
     with db.tx() as c:

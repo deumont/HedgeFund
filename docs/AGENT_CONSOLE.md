@@ -205,3 +205,5 @@ marker; no order is submitted with a zero stop price. Risk calculations charge
 full capital at risk when absent. Signal exits, cash/exposure checks, reservations,
 25% agent capital cap, kill/portfolio protections and session-end liquidation stay
 independent. Technical cohorts retain their stored rule gates and protective stops.
+
+Current policy (21 October 2026): Technical agents use gpt-6-luna (Standard USD 0.10 input / 0.50 output per million tokens), regardless of department. Other research agents use gpt-5.4-mini and other demo/fund agents gpt-6.1-sol. Manager unchanged. The CEO removed the local monthly/daily API spending stop: API_SPEND_LIMIT_ENABLED=false. Historical cost, reservations and uncertainty remain visible; provider quota/rate failures are still respected. These settings supersede earlier 30 EUR ceiling descriptions above. Source: https://developers.openai.com/api/docs/models/gpt-6-luna

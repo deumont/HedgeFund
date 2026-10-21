@@ -45,7 +45,7 @@ def instant_answer(db,cfg,text):
     at=datetime.now(timezone.utc).astimezone(BERLIN)
     start=at.replace(day=1,hour=0,minute=0,second=0,microsecond=0).astimezone(timezone.utc).isoformat()
     spent=db.one("SELECT COALESCE(SUM(CASE WHEN status='settled' THEN cost_u ELSE reserved_u END),0) n FROM usage WHERE created_at>=?",(start,))['n']
-    if not cfg.openai_api_key or not db.get('engine_enabled') or spent>=units(cfg.monthly_budget_eur):
+    if not cfg.openai_api_key or not db.get('engine_enabled') or (cfg.api_spend_limit_enabled and spent>=units(cfg.monthly_budget_eur)):
         reason='KI-Monatsbudget ausgeschöpft' if cfg.openai_api_key and db.get('engine_enabled') else 'KI-Zugang fehlt oder ist pausiert'
         return f'{reason}. Neue KI-Analysen sind gerade nicht verfügbar. Fragen zu Fondsstand, Trades und Agenten beantworte ich direkt aus den Systemdaten. Der Strategiehandel läuft unabhängig weiter.',evidence
     return None

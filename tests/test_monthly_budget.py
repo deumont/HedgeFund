@@ -29,7 +29,7 @@ def test_previous_daily_ceiling_does_not_block_ai_or_manager(db):
 @pytest.mark.parametrize('status',['settled','reserved','uncertain'])
 def test_monthly_ceiling_still_blocks_ai_and_explains_manager(db,status):
     spend(db,'30',status)
-    cfg=Settings(_env_file=None,openai_api_key='test-only',monthly_budget_eur=Decimal('30'))
+    cfg=Settings(_env_file=None,openai_api_key='test-only',monthly_budget_eur=Decimal('30'),api_spend_limit_enabled=True)
     with pytest.raises(BudgetError,match='Monatsbudget'):
         AI(db,cfg).reserve('agent','gpt-5.4-mini','small',1000,1)
     response=create_request(db,cfg,'Analysiere eine neue Hypothese')

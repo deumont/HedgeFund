@@ -20,8 +20,10 @@ class BudgetError(ValueError):
     pass
 
 
-# Official Standard pricing, verified 2026-10-20. No premium service tier requested.
+# Official Standard pricing, Luna verified 2026-10-21. No premium tier requested.
+MAX_CONTEXT_BYTES=350000
 PRICE_CARDS={'gpt-5.4-mini':(Decimal('.75'),Decimal('4.5')),
+             'gpt-6-luna':(Decimal('.10'),Decimal('.50')),
              'gpt-6.1-sol':(Decimal('2'),Decimal('10'))}
 
 
@@ -109,7 +111,7 @@ class AI:
             raise BudgetError('Modell/Preiskarte nicht verifiziert; Preisfreigabe in Code erforderlich')
         input_price,output_price=PRICE_CARDS[model]
         byte_bound=len(dumps(inputs).encode('utf-8'))+4096
-        if byte_bound>140000:
+        if byte_bound>MAX_CONTEXT_BYTES:
             raise BudgetError('KI-Kontext überschreitet lokale Grenze')
         at=datetime.now(timezone.utc)
         pause=self.db.get('openai_retry_after')
@@ -123,7 +125,7 @@ class AI:
             local=at.astimezone(BERLIN)
             month=local.replace(day=1,hour=0,minute=0,second=0,microsecond=0).astimezone(timezone.utc).isoformat()
             total=c.execute("SELECT COALESCE(SUM(CASE WHEN status='settled' THEN cost_u ELSE reserved_u END),0) FROM usage WHERE created_at>=?",(month,)).fetchone()[0]
-            if total+upper>units(self.cfg.monthly_budget_eur):
+            if self.cfg.api_spend_limit_enabled and total+upper>units(self.cfg.monthly_budget_eur):
                 raise BudgetError('Lokales Monatsbudget ausgeschöpft; neue KI-Aufgaben gesperrt')
             rid=uid()
             c.execute('INSERT INTO usage VALUES(?,?,?,?,0,0,?,0,?,?)',(rid,agent_id,kind,model,upper,'reserved',now()))
@@ -158,10 +160,12 @@ class AI:
             with self.db.tx() as c:
                 bound=c.execute('SELECT reserved_u FROM usage WHERE id=?',(rid,)).fetchone()[0]
                 c.execute("UPDATE usage SET input_tokens=?,output_tokens=?,cost_u=?,status='settled' WHERE id=?",(usage.input_tokens,usage.output_tokens,cost,rid))
-                if cost>bound:
+                if cost>bound and self.cfg.api_spend_limit_enabled:
                     from .db import put
                     put(c,'engine_enabled',False)
                     event(c,'budget','Kosten oberhalb Reservierung; KI-Engine gesperrt',level='critical')
+                elif cost>bound:
+                    event(c,'usage_bound_exceeded','Kosten oberhalb Schätzung; Kosten gespeichert, keine Ausgabensperre aktiv',agent_id,level='warning')
                 if web_calls:event(c,'web_search_usage','Web-Toolgebühren konservativ mit abgerechnet',agent_id,data={'usage_id':rid,'web_calls':web_calls,'tool_fee_usd':str(Decimal(WEB_FEE_USD)*web_calls)})
             self.db.integration('openai','connected',f'Echte Responses-Anfrage erfolgreich, Modell {model}; Nutzung gespeichert')
             self.db.set('openai_verified_key_digest',hashlib.sha256(self.cfg.openai_api_key.encode()).hexdigest())
@@ -239,7 +243,8 @@ class AI:
             progress(self.db,agent_id,'analysis','Recherchiert Quellen, Unternehmenslage und Gegenargumente' if agent.get('approach')=='news' else 'Analysiert Hypothese und Strategie')
             from .web_research import WEB_FUNCTION,research_public_web
             tools=[TOOLS[0]]+([WEB_FUNCTION] if agent.get('approach')=='news' else [])
-            response=await self.call('agent',messages,agent_id,tools=tools,schema=decision_model.model_json_schema())
+            # Final turn must produce the decision instead of another tool round.
+            response=await self.call('agent',messages,agent_id,tools=tools if turn<3 else None,schema=decision_model.model_json_schema())
             calls=[x for x in response.output if x.type=='function_call']
             if not calls:
                 result=decision_model.model_validate_json(response.output_text)
@@ -258,7 +263,12 @@ class AI:
                 except (ValueError,TypeError) as exc:
                     output={'error':str(exc)}
                 receipts.append({'tool':call.name,'args':args,'result':output,'at':now()})
-                messages.append({'type':'function_call_output','call_id':call.call_id,'output':dumps(output)})
+                # Keep complete local receipts, but never let one large data read
+                # prevent the model from finishing its already-started analysis.
+                serialized=dumps(output)
+                if len(dumps(messages).encode())+len(serialized.encode())>MAX_CONTEXT_BYTES-45000:
+                    serialized=dumps({'error':'Abfrage zu umfangreich für diesen Analyseschritt. Nutze die bereits vorliegenden Daten, benenne Lücken und schließe die Analyse ohne erfundene Evidenz ab.','result_omitted':True})
+                messages.append({'type':'function_call_output','call_id':call.call_id,'output':serialized})
         else:
             raise ValueError('Agenten-Toollimit erreicht; keine Handelsaktion')
         context['tool_receipts']=receipts

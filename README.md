@@ -153,3 +153,5 @@ Private Zugangsdaten und Betriebsdaten sind von der Veröffentlichung ausgeschlo
 - [Alpaca SDK und Kalender](https://alpaca.markets/sdks/python/api_reference/trading/calendar.html)
 - [SEC EDGAR API](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
 - [EZB-Wechselkurse](https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml)
+
+Current policy (21 October 2026): Technical agents use gpt-6-luna (Standard USD 0.10 input / 0.50 output per million tokens), regardless of department. Other research agents use gpt-5.4-mini and other demo/fund agents gpt-6.1-sol. Manager unchanged. The CEO removed the local monthly/daily API spending stop: API_SPEND_LIMIT_ENABLED=false. Historical cost, reservations and uncertainty remain visible; provider quota/rate failures are still respected. These settings supersede earlier 30 EUR ceiling descriptions above. Source: https://developers.openai.com/api/docs/models/gpt-6-luna

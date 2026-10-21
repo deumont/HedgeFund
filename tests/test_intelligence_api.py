@@ -23,7 +23,7 @@ def config(db,**kwargs):
 
 
 def test_budget_reservations_and_fail_closed(db):
-    cfg=config(db,monthly_budget_eur=Decimal('0.03'))
+    cfg=config(db,monthly_budget_eur=Decimal('0.03'),api_spend_limit_enabled=True)
     ai=AI(db,cfg)
     # Use current dated FX fixture because costs use actual current time.
     today=datetime.now(timezone.utc).date().isoformat()
