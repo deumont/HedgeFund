@@ -72,7 +72,10 @@ zusätzlich serverseitig abgewiesen. Der Not-Aus bleibt als Schutzfunktion erhal
 
 ## Modelle und Kosten
 
-Einzelagenten und ihre Tagesberichte verwenden `gpt-6.1-sol`, Responses API,
+Seit 21.10.2026 verwenden Forschung/Warteschlange und ihre Tagesberichte
+`gpt-5.4-mini`; Demo/Fonds verwenden `gpt-6.1-sol`. Die aktuelle Abteilung wird
+vor jedem Aufruf gelesen, deshalb wirken Auf-/Abstiege in beide Richtungen.
+Einzelagenten und ihre Tagesberichte verwenden die Responses API,
 Reasoning low und ausdrücklich Standard-Service-Tier. Kontozugriff und ein echter
 Agentenbericht sind geprüft. Der separate Manager verwendet weiterhin
 `gpt-5.4-mini`. Verifizierte Standard-Preiskarten, USD je Million Input/Output:
