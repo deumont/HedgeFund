@@ -43,7 +43,11 @@ def test_budget_reservations_and_fail_closed(db):
     assert db.one('SELECT SUM(reserved_u) n FROM usage')['n']<=units('.03')
 
 
-def test_rotation_confirmed_next_session_and_sizes(db):
+def test_rotation_confirmed_next_session_and_sizes(db,monkeypatch):
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return AT
+    monkeypatch.setattr('backend.intelligence.datetime',Clock)
     result=propose_swap(db,51,76,'Begründete Testplanung',effective='2026-10-21')
     assert not apply_rotations(db,AT)
     with db.tx() as c:

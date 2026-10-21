@@ -79,6 +79,8 @@ def evaluate_tx(db,c,agent_id,symbol,side='buy',at=None,expected_strategy=None):
         mandate=c.execute('SELECT approach FROM agent_mandates WHERE agent_id=?',(agent_id,)).fetchone()
         if mandate and mandate['approach']=='news' and spec.get('kind')!='event_driven':
             raise ValueError('Nachrichtenagent wartet auf seine Ereignisstrategie; kein technischer Ersatzhandel')
+        if mandate and mandate['approach']=='experimental' and spec.get('kind')!='random_entry':
+            raise ValueError('Experimentagent wartet auf sein Zufallsexperiment; kein technischer Ersatzhandel')
         if spec.get('kind')=='event_driven':
             from .news_agents import event_signal
             valid,reason,proof=event_signal(c,agent_id,symbol,side,position,spec,at)
@@ -86,7 +88,7 @@ def evaluate_tx(db,c,agent_id,symbol,side='buy',at=None,expected_strategy=None):
             return record(c,agent_id,symbol,side,sid,tf,valid,reason,observations,at)
         if spec.get('requires_realtime',False):
             raise ValueError('Strategie benötigt Echtzeitdaten; 15-Minuten-Verzögerung ungeeignet')
-        if (spec.get('requires_full_market',False) or agent['specialty']=='Mikrostruktur') and policy.get('feed','iex')!='sip':
+        if (spec.get('requires_full_market',False) or agent['specialty']=='Mikrostruktur' and spec['kind']!='random_entry') and policy.get('feed','iex')!='sip':
             raise ValueError('Strategie benötigt Gesamtmarktfeed; IEX-Teilmarkt ungeeignet')
         if spec.get('max_data_delay_minutes',0)<delay:
             raise ValueError('Datenverzögerung überschreitet das Strategielimit')
@@ -95,7 +97,7 @@ def evaluate_tx(db,c,agent_id,symbol,side='buy',at=None,expected_strategy=None):
         if not dataset:
             raise ValueError(f'Keine geeigneten echten {tf}-Minuten-Bars; Importdaten sind nur Research')
         source=dataset['source']
-        if 'IEX' in source.upper() and (spec.get('requires_full_market') or agent['specialty']=='Mikrostruktur'):
+        if 'IEX' in source.upper() and (spec.get('requires_full_market') or agent['specialty']=='Mikrostruktur' and spec['kind']!='random_entry'):
             raise ValueError('Datensatz selbst ist IEX; Gesamtmarktstrategie gesperrt')
         rows=[dict(x) for x in c.execute('SELECT * FROM bars WHERE symbol=? AND timeframe=? AND source=? AND adjustment=? ORDER BY time DESC LIMIT ?',
                                        (symbol,timeframe,source,dataset['adjustment'],max(spec['lookback']+5, spec['holding_bars']+5)*4)).fetchall()]
@@ -134,23 +136,28 @@ def evaluate_tx(db,c,agent_id,symbol,side='buy',at=None,expected_strategy=None):
             raise ValueError('Neue Strategie erst mit nachfolgendem abgeschlossenen Bar handeln; keine rückwirkend erzwungenen Signale')
         closed=closed[-max(spec['lookback']+5,spec['holding_bars']+5):]
         closes=[float(x['close']) for x in closed]
-        entry=signal(closes,spec)
+        entry=signal(closes,spec,symbol,closed[-1]['time'])
         observations.update(bars=closed,last_bar_end=last_end.isoformat(),
             available_after=(last_end+timedelta(minutes=delay)).isoformat(),
             bar_hash=hashlib.sha256(dumps(closed).encode()).hexdigest(),
             indicators={'lookback_return':closes[-1]/closes[-1-spec['lookback']]-1,
                         'moving_average':sum(closes[-spec['lookback']:])/spec['lookback'],
                         'threshold':spec['threshold'],'entry_condition':entry})
+        experimental=spec['kind']=='random_entry'
+        if experimental:
+            from .experiments import draw
+            observations.update(indicators={},experiment=draw(spec,symbol,closed[-1]['time']),entry_basis='Zufallsexperiment, keine technische oder fundamentale Prognose')
         if side=='buy':
             valid=entry
             reason='Vordefinierte technische Einstiegsbedingung erfüllt' if valid else 'HOLD: Vordefinierte Einstiegsbedingung nicht erfüllt; kein Aktivitätsziel'
+            if experimental:reason='Dokumentierter Zufallseinstieg; kein behaupteter Informationsvorteil' if valid else 'Zufallsexperiment: kein Einstieg in diesem Zeitfenster'
             prior=c.execute("SELECT s.observations FROM fills f JOIN order_signals os ON os.order_id=f.order_id JOIN signal_decisions s ON s.id=os.signal_id WHERE f.agent_id=? AND f.symbol=? AND f.side='buy' ORDER BY f.created_at DESC LIMIT 1",(agent_id,symbol)).fetchone()
             if valid and prior and json.loads(prior['observations']).get('last_bar_end')==observations['last_bar_end']:
                 valid=False
                 reason='HOLD: Einstiegsbedingung dieses abgeschlossenen Bars bereits gehandelt'
         else:
             bars_held=sum(datetime.fromisoformat(x['time'])>=datetime.fromisoformat(position['created_at']) for x in closed)
-            valid=not entry or bars_held>=spec['holding_bars']
+            valid=bars_held>=spec['holding_bars'] or not experimental and not entry
             observations['completed_bars_held']=bars_held
             reason='Vordefinierte Strategie-Ausstiegsbedingung erfüllt' if valid else 'HOLD: weder Strategieausstieg noch Schutzbedingung erfüllt'
     except (ValueError,KeyError,TypeError,ArithmeticError) as exc:

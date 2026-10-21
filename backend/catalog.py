@@ -79,6 +79,8 @@ def seed(db):
             event(c, "bootstrap", "100 Agenten gespeichert: 50 Research, 25 Demo, 25 Fund. Anfangsbesetzung ist unbewertet.")
     from .news_agents import configure
     configure(db)
+    from .experiments import configure as configure_experiments
+    configure_experiments(db)
 
 
 def add_portfolio(c, pid, kind, owner, amount):

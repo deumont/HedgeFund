@@ -88,3 +88,13 @@ nachträglich geladene Nachrichten sind kein historischer Point-in-time-Nachweis
 Kursreaktionen keine Strategiegewinne. Ohne geeignete Quellen kein Einstieg und
 kein technischer Ersatzhandel. Alle bestehenden Zeit-, Kapital- und Datengrenzen
 gelten weiterhin.
+
+CEO-Auftrag vom 21.10.2026: Unterschiedliche Ansätze einschließlich ausdrücklich
+als Zufall gekennzeichneter Paper-Experimente zulassen. Zunächst fünf bestehende
+Demo-Agenten (51–55) experimentell führen; 50 Nachrichtenagenten, übrige 45
+technische Agenten, Abteilungen weiterhin 50/25/25. Kein technischer oder
+fundamentaler Vorwand für Zufallskäufe, kein erneutes Auslosen beim Polling.
+Manager sieht Ansatz und tatsächliche Ergebnisse; kein automatischer Aufstieg
+wegen kurzer Glücksserie. Echtgeldausführung bleibt deaktiviert. 25-Prozent-
+Kapitalgrenze, geeignete Ausführungsdaten, mindestens 15-Minuten-Zeitrahmen,
+Forschungsfenster und API-Monatsbudget bleiben bestehen.

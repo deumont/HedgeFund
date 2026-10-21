@@ -82,6 +82,9 @@ def initial_strategy():
 
 def prepare_strategy(db,aid):
     from .research import require_research
+    if mandate(db,aid)['approach']=='experimental':
+        from .experiments import prepare_strategy as prepare_experiment
+        return prepare_experiment(db,aid)
     if mandate(db,aid)['approach']!='news':return
     current=db.one('SELECT * FROM strategies WHERE agent_id=? ORDER BY version DESC LIMIT 1',(aid,))
     if json.loads(current['spec'])['kind']=='event_driven':return

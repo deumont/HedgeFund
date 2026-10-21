@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 import statistics
+from datetime import datetime,timedelta
 from .db import dumps, uid
 from .config import now
 
@@ -18,6 +19,10 @@ def validate_spec(spec):
         from .news_agents import EventStrategy
         EventStrategy.model_validate(spec)
         return spec
+    if spec.get('kind')=='random_entry':
+        from .experiments import ExperimentSpec
+        ExperimentSpec.model_validate(spec)
+        return spec
     if spec.get('kind') not in ('momentum','mean_reversion','ma_cross','breakout'):
         raise ValueError('Strategietyp nicht in sicherer DSL')
     for k,lo,hi in [('lookback',2,252),('holding_bars',1,126),('threshold',0,0.5),('stop_pct',0.001,0.25)]:
@@ -29,7 +34,11 @@ def validate_spec(spec):
     return spec
 
 
-def signal(closes,spec):
+def signal(closes,spec,symbol='',bar_time=None):
+    if spec['kind']=='random_entry':
+        if not bar_time or len(closes)<=spec['lookback']:return False
+        from .experiments import draw
+        return draw(spec,symbol,bar_time)['selected']
     n=spec['lookback']
     if len(closes)<=n:
         return False
@@ -55,6 +64,7 @@ def simulate(bars,spec,initial=3000,cost_bps=12,guard=None):
     entry=0.0
     held=0
     pending=None
+    pending_ready=None
     trades=[]
     curve=[]
     closes=[]
@@ -71,18 +81,19 @@ def simulate(bars,spec,initial=3000,cost_bps=12,guard=None):
         if min(op,lo,close)<=0 or not all(math.isfinite(x) for x in (op,lo,close)):
             raise ValueError('Ungültige Marktdaten')
         # Signals only see previous closes; execution at following open plus friction.
-        if pending=='buy' and qty==0:
+        ready=pending_ready is None or datetime.fromisoformat(bar['time'])>=pending_ready
+        if pending=='buy' and qty==0 and ready:
             entry=op*(1+friction)
             invested=cash*spec.get('position_pct',1.0)
             qty=invested/entry
             cash-=invested
             held=0
-        elif pending=='sell' and qty:
+        elif pending=='sell' and qty and ready:
             price=op*(1-friction)
             cash+=qty*price
             trades.append(dict(time=bar['time'],return_pct=(price/entry-1)*100,pnl=qty*(price-entry)))
             qty=0
-        pending=None
+        if ready:pending=None;pending_ready=None
         if qty:
             held+=1
             stop=entry*(1-spec['stop_pct'])
@@ -96,10 +107,12 @@ def simulate(bars,spec,initial=3000,cost_bps=12,guard=None):
         drawdown=max(drawdown,1-equity/high)
         curve.append(dict(time=bar['time'],equity=equity))
         closes.append(close)
-        if qty and (held>=spec['holding_bars'] or not signal(closes,spec)):
+        if not pending and qty and (held>=spec['holding_bars'] or spec['kind']!='random_entry' and not signal(closes,spec)):
             pending='sell'
-        elif not qty and signal(closes,spec):
+        elif not pending and not qty and signal(closes,spec,bar.get('symbol',''),bar['time']):
             pending='buy'
+        if pending and pending_ready is None and spec['kind']=='random_entry':
+            pending_ready=datetime.fromisoformat(bar['time'])+timedelta(minutes=spec['timeframe_minutes']+spec['max_data_delay_minutes'])
     returns=[curve[i]['equity']/curve[i-1]['equity']-1 for i in range(1,len(curve))]
     stdev=statistics.stdev(returns) if len(returns)>1 else 0
     sharpe=statistics.mean(returns)/stdev*math.sqrt(252) if stdev else None
@@ -137,6 +150,9 @@ def run_backtest(db,agent_id,strategy_id,symbol):
     if split<=spec['lookback']+10 or len(bars)-split<=spec['lookback']+10:
         raise ValueError('Zu wenig Daten für getrennte In-Sample-/Out-of-Sample-Tests')
     result={'split_date':bars[split]['time'],'walk_forward':[], 'dataset':dataset}
+    if spec['kind']=='random_entry':
+        result.update(type='random_experiment',experiment={'seed':spec['seed'],'entry_probability':spec['entry_probability'],
+            'note':'Fester Seed je Agent; Glück und Stichprobenfehler möglich. Ein erfolgreicher Lauf beweist keinen Prognosevorteil.'})
     for key,label,data in [('full','Gesamttest',bars),('in_sample','In-Sample-Test',bars[:split]),('out_of_sample','Out-of-Sample-Test',bars[split:])]:
         require_research();progress(db,agent_id,'backtest',label)
         result[key]=simulate(data,spec,guard=require_research)

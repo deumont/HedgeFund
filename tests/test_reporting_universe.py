@@ -14,6 +14,7 @@ from conftest import AT
 
 @pytest.mark.asyncio
 async def test_agent_authored_report_persists_once_with_exact_trade_proof(db,monkeypatch):
+    monkeypatch.setattr('backend.ledger.now',lambda:AT.isoformat())
     order=Ledger(db).submit(76,'AAPL','buy',1,'report-fill',stop_usd=98,reason='Valid entry',at=AT)
     fill=Ledger(db).fill(order['id'],AT)
     calls=[]
